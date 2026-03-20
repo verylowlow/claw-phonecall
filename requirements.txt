@@ -1,0 +1,5 @@
+openpyxl
+pyyaml
+webrtcvad
+requests
+numpy

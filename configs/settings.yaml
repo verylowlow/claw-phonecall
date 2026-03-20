@@ -1,0 +1,99 @@
+# Claw Phone Call 配置文件
+
+# ADB设备配置
+adb:
+  # 连接模式: usb 或 wifi
+  mode: usb
+  
+  # 设备列表
+  devices:
+    - id: "phone1"
+      serial: "ABCD123456789"  # ADB devices显示的序列号
+      name: "测试手机1"
+      phone_number: "13511223344"  # 本机号码
+      
+    - id: "phone2"
+      serial: "EFGH123456789"
+      name: "测试手机2"
+      phone_number: "13522334455"
+
+# 火山引擎配置
+volcengine:
+  # 地域
+  region: cn-beijing
+  
+  # ASR配置
+  asr:
+    app_id: "6897139964"
+    access_token: "bsNydZqpKWMKuzLh-8BTVW25uVqyvqgU"
+    resource_id: "volc.seedasr.auc"  # 模型2.0
+  
+  # TTS配置
+  tts:
+    app_id: "6897139964"
+    access_token: "bsNydZqpKWMKuzLh-8BTVW25uVqyvqgU"
+    voice: "xiaoxiao"  # 默认音色
+    # 可选音色: xiaoxiao, xiaoyi, ruoxi, yujie, jingying, jinghui, tianxiang
+
+# 对话配置
+dialog:
+  # 开场白
+  greeting: "您好，我是AI助手，请问有什么可以帮您？"
+  
+  # 静音填充语 (检测到对方长时间静音时播放)
+  silence_phrases:
+    - "嗯，好的，请讲"
+    - "好的，我在听"
+    - "嗯嗯，请说"
+    - "我在听，您请讲"
+  
+  # 结束关键词 (检测到这些词时自动挂断)
+  end_keywords:
+    - "再见"
+    - "挂了"
+    - "谢谢"
+    - "再见吧"
+    - "可以了"
+    - "没问题"
+  
+  # 最大对话轮次
+  max_turns: 20
+  
+  # 静音检测阈值 (秒)
+  silence_threshold: 2.0
+  
+  # 最小说话时长 (秒)
+  min_speech_duration: 0.3
+
+# 音频配置
+audio:
+  # 采样率
+  sample_rate: 16000
+  
+  # 声道数
+  channels: 1
+  
+  # 采样位深
+  bits: 16
+  
+  # FIFO路径
+  fifo_path: /data/local/tmp/audio_pipe
+  
+  # ADB端口转发
+  adb_forward_port: 18888
+
+# VAD配置
+vad:
+  # 激进模式 (0-3, 3最激进)
+  mode: 2
+  
+  # 静音帧数阈值
+  silence_threshold: 20
+  
+  # 说话帧数阈值
+  speech_threshold: 3
+
+# 日志配置
+logging:
+  level: INFO
+  file: phone_call.log
