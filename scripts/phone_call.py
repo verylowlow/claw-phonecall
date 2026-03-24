@@ -17,7 +17,7 @@ from scripts.adb_control import ADBControl, list_devices
 from scripts.audio_capture import AudioManager
 from scripts.vad import VADDetector, SilenceFiller
 from scripts.asr_client import VolcanoASR, create_asr_client
-from scripts.tts_player import VolcanoTTS, create_tts_client
+from scripts.tts_player import EdgeTTS, create_tts_client
 from scripts.dialog_manager import DialogManager, MultiCallManager
 
 
