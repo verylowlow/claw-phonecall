@@ -20,6 +20,10 @@ aiohttp>=3.9.0
 
 # 配置管理
 pyyaml>=6.0
+python-dotenv>=1.0.0
+
+# 火山 ASR WebSocket
+websocket-client>=1.6.0
 
 # 测试
 pytest>=7.4.0

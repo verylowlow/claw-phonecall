@@ -16,6 +16,17 @@ from . import config
 logger = logging.getLogger(__name__)
 
 
+def _ensure_pyaudio_usable() -> None:
+    """
+    避免错误安装或本地 pyaudio.py 遮蔽导致 AttributeError（如缺少 Pa_Initialize）。
+    """
+    if not hasattr(pyaudio, "PyAudio") or not callable(getattr(pyaudio, "PyAudio")):
+        raise AudioPlayerError(
+            "PyAudio 不可用：请确认已用 pip 安装与当前 Python 版本匹配的 pyaudio，"
+            "且项目目录下无同名 pyaudio.py 遮蔽官方包。"
+        )
+
+
 class AudioPlayerError(Exception):
     """音频播放异常"""
     pass
@@ -54,6 +65,7 @@ class AudioPlayer:
             return
         
         try:
+            _ensure_pyaudio_usable()
             self._pyaudio = pyaudio.PyAudio()
             logger.info("PyAudio initialized")
         except Exception as e:
@@ -124,6 +136,23 @@ class AudioPlayer:
         self._stream.start_stream()
         
         logger.info("Audio player started")
+
+    def barge_in(self) -> None:
+        """
+        打断播放：清空待播队列（对齐 Twilio media stream clearTtsQueue 语义）。
+        当前正在 write 的这一小块仍会播完；PhoneSkill 侧应配合更小的 TTS 帧。
+        """
+        if not self._running.is_set():
+            return
+        n = 0
+        while True:
+            try:
+                self._audio_queue.get_nowait()
+                n += 1
+            except queue.Empty:
+                break
+        if n:
+            logger.info("Barge-in: dropped %d queued audio chunk(s)", n)
     
     def _play_loop(self) -> None:
         """播放循环"""

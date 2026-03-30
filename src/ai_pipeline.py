@@ -119,23 +119,44 @@ class VADManager:
 class ASRManager:
     """
     ASR (Automatic Speech Recognition) 管理器
-    使用 Faster-Whisper 进行语音识别
+    支持火山引擎云端 ASR (默认) 和本地 Faster-Whisper
     """
-    
-    def __init__(self):
+
+    def __init__(self, provider: str = None):
         """初始化 ASR 管理器"""
-        self._model = None
-        self._model_loaded = False
-        self._lock = threading.Lock()
+        # 默认使用火山引擎云端 ASR
+        self._provider = provider or config.ASR_CONFIG.get("provider", "volcengine")
+
+        if self._provider == "volcengine":
+            # 火山引擎云端 ASR
+            from .volc_asr import VolcASRManager
+            self._asr = VolcASRManager()
+            logger.info("Using VolcEngine Cloud ASR")
+            if not config.volc_asr_configured():
+                logger.warning(
+                    "火山 ASR 环境变量未配置，识别将不可用；请复制 .env.example 为 .env 并填写密钥"
+                )
+        else:
+            # 本地 Faster-Whisper
+            self._model = None
+            self._model_loaded = False
+            self._lock = threading.Lock()
+            logger.info("Using Local Whisper ASR")
         
     def load_model(self) -> None:
         """加载 ASR 模型"""
+        if self._provider == "volcengine":
+            # 火山引擎不需要加载模型
+            self._asr.load_model()
+            return
+
+        # 本地 Whisper
         if self._model_loaded:
             return
-        
+
         try:
             from faster_whisper import WhisperModel
-            
+
             logger.info(f"Loading Faster-Whisper model: {config.ASR_CONFIG['model_size']}")
             self._model = WhisperModel(
                 config.ASR_CONFIG["model_size"],
@@ -147,25 +168,30 @@ class ASRManager:
         except Exception as e:
             logger.error(f"Failed to load ASR model: {e}")
             self._model_loaded = False
-    
+
     def transcribe(self, audio_chunk: bytes, language: str = "zh") -> str:
         """
         转写音频
-        
+
         Args:
             audio_chunk: PCM 音频数据
             language: 语言代码
-            
+
         Returns:
             str: 转写文本
         """
+        if self._provider == "volcengine":
+            # 使用火山引擎云端 ASR
+            return self._asr.transcribe(audio_chunk, language)
+
+        # 使用本地 Whisper
         if not self._model_loaded or self._model is None:
             return ""
-        
+
         try:
             import numpy as np
             audio = np.frombuffer(audio_chunk, dtype=np.int16).astype(np.float32) / 32768.0
-            
+
             segments, _ = self._model.transcribe(
                 audio,
                 language=language,
@@ -174,7 +200,7 @@ class ASRManager:
                     min_speech_duration_ms=config.VAD_CONFIG["min_speech_duration_ms"]
                 )
             )
-            
+
             text = " ".join([seg.text for seg in segments])
             return text.strip()
         except Exception as e:
@@ -226,10 +252,12 @@ class TTSManager:
             # 转换为 16kHz PCM
             if audio_data:
                 # 使用 ffmpeg 转换采样率
+                # 注意: edge-tts 输出的是 mp3 格式
                 import subprocess
+                ffmpeg_bin = config.get_tool_path("ffmpeg")
                 ffmpeg_cmd = [
-                    "ffmpeg", "-hide_banner", "-loglevel", "error",
-                    "-f", "webm", "-acodec", "opus", "-i", "pipe:0",
+                    ffmpeg_bin, "-hide_banner", "-loglevel", "error",
+                    "-f", "mp3", "-acodec", "mp3float", "-i", "pipe:0",
                     "-ar", str(config.AUDIO_CONFIG["sample_rate"]),
                     "-ac", str(config.AUDIO_CONFIG["channels"]),
                     "-f", "s16le", "-acodec", "pcm_s16le",

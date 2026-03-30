@@ -8,15 +8,20 @@ import sys
 import time
 from pathlib import Path
 
-# 添加 src 到路径
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# 添加项目根目录到路径
+_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_ROOT))
 
-from phone_controller import PhoneController, CallState
-from audio_capture import AudioCapture
-from audio_player import AudioPlayer
-from humanization import Humanization
-from ai_pipeline import AIPipeline, PipelineState
-import config
+from src.config import configure_logging
+
+configure_logging()
+
+from src.phone_controller import PhoneController, CallState
+from src.audio_capture import AudioCapture
+from src.audio_player import AudioPlayer
+from src.humanization import Humanization
+from src.ai_pipeline import AIPipeline, PipelineState
+from src import config
 
 # 配置日志
 logging.basicConfig(
@@ -124,8 +129,8 @@ class IntegrationTest:
         logger.info(f"Passed: {passed}, Failed: {failed}, Errors: {errors}")
 
 
-def test_phone_controller():
-    """测试 PhoneController 功能"""
+def phone_controller_smoke():
+    """手工/脚本：PhoneController（可能无设备）。"""
     logger.info("\n--- Testing PhoneController ---")
     
     controller = PhoneController()
@@ -140,8 +145,8 @@ def test_phone_controller():
     logger.info("PhoneController test completed")
 
 
-def test_humanization():
-    """测试 Humanization 功能"""
+def humanization_smoke():
+    """手工/脚本：Humanization。"""
     logger.info("\n--- Testing Humanization ---")
     
     human = Humanization()
@@ -164,6 +169,14 @@ def test_humanization():
     logger.info("Humanization test completed")
 
 
+def test_integration_init_smoke():
+    """pytest：仅类内冒烟用例（无 scrcpy/真机）。"""
+    t = IntegrationTest()
+    t.run_all_tests()
+    for name, result in t.results.items():
+        assert result == "PASS", f"{name}: {result}"
+
+
 def main():
     """主函数"""
     logger.info("AI Phone Agent - Integration Tests")
@@ -173,9 +186,8 @@ def main():
     test = IntegrationTest()
     test.run_all_tests()
     
-    # 运行功能测试
-    test_phone_controller()
-    test_humanization()
+    phone_controller_smoke()
+    humanization_smoke()
     
     logger.info("\nAll tests completed!")
 

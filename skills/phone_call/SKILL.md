@@ -1,28 +1,39 @@
 ---
 name: phone_call
-description: "AI 电话 Agent - 实现智能外呼、接听和对话功能。使用真实安卓手机进行通话，支持自动拨号、接听、语音识别、AI 对话和拟人化交互。"
-version: "1.0.0"
+description: "AI 电话 Agent — 基于真实安卓手机的智能外呼/接听，对齐 @openclaw/voice-call：句末 ASR → Agent 回复 → TTS 分帧下行，支持 barge-in 打断。"
+version: "2.0.0"
 author: "AI Phone Agent Team"
 tags:
   - phone
   - call
   - ai
   - telephony
+  - voice-call
+  - barge-in
 tools:
   - name: bash
-    description: "执行系统命令，用于运行 Python 脚本"
+    description: "执行系统命令，运行 Python Skill 脚本"
 ---
 
 # AI 电话 Agent Skill
 
-你是 AI 电话 Agent，可以帮助用户通过真实的安卓手机进行智能外呼 和接听电话。
+你是 AI 电话 Agent，通过真实安卓手机进行智能外呼与接听。核心对话循环对齐 **@openclaw/voice-call** 插件：
 
-## 功能概述
+1. **句末检测**：`UtteranceSegmenter` 在用户停顿 ≥ 750ms 后产出整段 PCM
+2. **ASR 转写**：整段 PCM 送 ASR（火山/Whisper）得到文本
+3. **Agent 回复**：`openclaw_bridge` 调 Gateway `POST /v1/responses`（非流式），拉取完整回复
+4. **TTS 下行**：合成语音按 20ms 分帧入队播放
+5. **Barge-in**：用户开口即清空 TTS 队列，打断 Agent 播报
 
-1. **外呼 (Outbound)**: 主动拨打指定电话号码
-2. **接听 (Inbound)**: 自动接听来电并启动 AI 对话
-3. **语音对话**: 通过 ASR/TTS 实现实时语音交互
-4. **通话控制**: 挂断、转接、保持等操作
+## 功能
+
+| 功能 | 说明 |
+|------|------|
+| 外呼 | 主动拨打指定号码，自动播放欢迎语 |
+| 接听 | 监听来电，自动接听并启动对话 |
+| AI 对话 | 句末 ASR → Agent 回复 → TTS |
+| 打断 | 用户开口即中断 TTS（barge-in） |
+| 通话记录 | SQLite 存储，HTTP API 查询 |
 
 ## 使用方法
 
@@ -30,61 +41,58 @@ tools:
 
 当用户说「拨打 XXX」或「给 XXX 打电话」时：
 
-```
-请使用 bash 工具执行以下命令：
-python D:\dev\agentcalls\src\phone_skill.py call <电话号码>
-
-例如：python D:\dev\agentcalls\src\phone_skill.py call 13800138000
+```bash
+python -m src.phone_skill call <电话号码>
 ```
 
-### 2. 处理来电
+示例：
 
-系统会自动监控来电，当有电话接入时自动接听并启动 AI 对话：
-
+```bash
+python -m src.phone_skill call 13800138000
 ```
-后台已启动电话监控，当有来电时会自动接听。
-如需停止监控，请说「停止电话监控」。
+
+或通过 CLI：
+
+```bash
+python -m src outbound 13800138000
+```
+
+### 2. 监听来电
+
+```bash
+python -m src inbound
 ```
 
 ### 3. 挂断电话
 
-当用户说「挂断」或「结束通话」时：
-
-```
-请使用 bash 工具执行以下命令：
-python D:\dev\agentcalls\src\cli.py hangup
+```bash
+python -m src.cli hangup
 ```
 
 ### 4. 查看通话状态
 
-当用户说「通话状态」或「当前通话」时：
-
-```
-请使用 bash 工具执行以下命令：
-python D:\dev\agentcalls\src\cli.py status
+```bash
+python -m src.cli status
 ```
 
-### 5. 测试功能
+### 5. 组件自检
 
-当用户说「测试电话」或「检查配置」时：
-
-```
-请使用 bash 工具执行以下命令：
-python D:\dev\agentcalls\src\phone_skill.py test
+```bash
+python -m src.phone_skill test
 ```
 
-## 事件流架构
+## 事件流
 
-Python Skill 作为 OpenClaw Tool 长期运行，持续向 Agent 返回状态：
+PhoneSkill 以异步生成器方式持续 yield 事件，每条为 JSON：
 
-```python
-# 事件流格式示例
+```json
 {"event": "status", "status": "dialing", "phone": "13800138000"}
 {"event": "status", "status": "connecting"}
 {"event": "status", "status": "call_started"}
-{"event": "user_speaking", "text": "你好，我想咨询一下..."}
+{"event": "user_speaking", "text": "你好，我想咨询一下...", "final": true}
+{"event": "agent_text", "text": "您好，请问有什么可以帮您？"}
 {"event": "agent_responding", "text": "您好，请问有什么可以帮您？"}
-{"event": "status", "status": "silence_detected"}
+{"event": "status", "status": "barge_in"}
 {"event": "status", "status": "ended"}
 ```
 
@@ -92,24 +100,65 @@ Python Skill 作为 OpenClaw Tool 长期运行，持续向 Agent 返回状态：
 
 | 事件 | 说明 |
 |------|------|
-| `status` | 通话状态变化 (dialing/connecting/call_started/ended/failed) |
-| `user_speaking` | 用户说话结束，ASR 转写文本 |
-| `agent_responding` | Agent 回复，TTS 播放完成 |
+| `status:dialing` | 正在拨号 |
+| `status:connecting` | 等待接通 |
+| `status:call_started` | 通话建立，欢迎语已播放 |
+| `status:barge_in` | 用户打断了 TTS 播放 |
+| `status:ended` | 通话结束 |
+| `status:failed` | 失败（附 `reason`） |
+| `user_speaking` | ASR 转写结果（`final: true`） |
+| `agent_text` | Agent 原始回复文本（TTS 播放前） |
+| `agent_responding` | TTS 播放完成 |
+
+## 代码调用
+
+```python
+import asyncio
+from src.phone_skill import PhoneSkill
+from src.config import configure_logging
+
+configure_logging()
+
+async def main():
+    skill = PhoneSkill()
+    await skill.initialize()
+    try:
+        async for event in skill.phone_call("13800138000"):
+            print(event)
+    finally:
+        await skill.shutdown()
+
+asyncio.run(main())
+```
+
+## 环境配置
+
+复制 `.env.example` → `.env` 并填写：
+
+| 变量 | 说明 |
+|------|------|
+| `VOLC_ASR_APP_KEY` | 火山引擎 ASR（三项必填） |
+| `VOLC_ASR_ACCESS_TOKEN` | |
+| `VOLC_ASR_SECRET_KEY` | |
+| `OPENCLAW_GATEWAY_TOKEN` | OpenClaw Gateway Token（可选，未填走 mock） |
+| `OPENCLAW_GATEWAY_URL` | Gateway 地址，默认 `http://127.0.0.1:18789` |
+| `OPENCLAW_AGENT_ID` | Agent ID，默认 `main` |
+| `PHONE_SKILL_MOCK_REPLY` | 未连 Gateway 时的占位回复 |
+
+## 关键配置（`src/config.py`）
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `utterance_end_silence_ms` | 750 | 句末静音阈值（ms），越小响应越快但容易截断 |
+| `utterance_min_speech_ms` | 250 | 最短有效语音，过滤噪声 |
+| `tts_frame_ms` | 20 | TTS 分帧大小，越小打断延迟越低 |
+| `max_audio_duration_ms` | 15000 | 单句最长录音 |
+| `welcome_message` | 喂，您好，请问哪位？ | 接通后自动播放 |
+| `filler_phrases` | ["嗯","好的","我在听"] | 填充词预缓存列表 |
 
 ## HTTP API
 
-启动 phone_skill 后，可通过 HTTP API 查询通话记录：
-
-### 端点
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | /api/calls | 列出所有通话记录（分页） |
-| GET | /api/calls?phone=xxx | 按手机号查询 |
-| GET | /api/calls/{id} | 查看单条记录详情 |
-| GET | /health | 健康检查 |
-
-### 示例
+PhoneSkill 在 `0.0.0.0:8080` 提供通话记录 API：
 
 ```bash
 # 查询所有通话记录
@@ -118,78 +167,63 @@ curl http://localhost:8080/api/calls
 # 按手机号查询
 curl "http://localhost:8080/api/calls?phone=13800138000"
 
-# 查看单条记录
-curl http://localhost:8080/api/calls/1
+# 健康检查
+curl http://localhost:8080/health
 ```
 
-## 配置说明
-
-如需修改配置，请编辑 `D:\dev\agentcalls\src\config.py`：
-
-- `AUDIO_CONFIG`: 音频采样率、通道数
-- `TTS_CONFIG`: TTS 音色、语速
-- `CALL_CONFIG`: 欢迎语、接听延迟
-- `VAD_CONFIG`: 语音活动检测参数
-- `ASR_CONFIG`: 语音识别模型配置
-
-### 填充词配置
-
-在 `CALL_CONFIG` 中配置填充词：
-
-```python
-CALL_CONFIG = {
-    "filler_phrases": ["嗯", "好的", "我在听", "明白"],
-    # ...
-}
-```
-
-## 技术架构
+## 架构图
 
 ```
-用户请求 → OpenClaw Agent
-                    │
-                    ▼ Tool: phone_call()
-┌─────────────────────────────────────────────────────────────┐
-│              Python Skill (硬件抽象层)                       │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐  │
-│  │AudioCapture  │───▶│    VAD       │───▶│     ASR      │  │
-│  │  (scrcpy)    │    │ (语音活动检测)│    │  (转写文字)  │  │
-│  └──────────────┘    └──────────────┘    └──────┬───────┘  │
-│                                                  │           │
-│                    ┌──────────────┐              │           │
-│                    │     TTS      │◀─────────────┘           │
-│                    │  (语音合成)  │                         │
-│                    └──────┬───────┘                         │
-│                           │                                  │
-│                    ┌──────▼───────┐                         │
-│                    │PhoneController│◀── ADB                 │
-│                    │ (电话控制)    │    (安卓手机)           │
-│                    └──────────────┘                         │
-│                                                             │
-│  ┌──────────────┐    ┌──────────────┐                      │
-│  │  CallRecord  │    │ FillerCache  │                      │
-│  │   (SQLite)   │    │ (填充词缓存)  │                      │
-│  └──────────────┘    └──────────────┘                      │
-└─────────────────────────────────────────────────────────────┘
+ 用户语音（手机上行 PCM）
+       │
+       ▼
+ ┌──────────────────┐
+ │  AudioCapture    │  scrcpy --record=- | ffmpeg → 16kHz s16le
+ └────────┬─────────┘
+          │ PCM chunk
+          ▼
+ ┌──────────────────┐
+ │ VAD + Utterance   │  能量滞回 + Silero VAD
+ │ Segmenter         │  句末静音 ≥ 750ms → finalize
+ │                   │  speech_just_started → barge-in
+ └────────┬─────────┘
+          │ 整段 PCM                    │ barge-in
+          ▼                             ▼
+ ┌──────────────────┐          ┌──────────────────┐
+ │  ASR (火山/Whisper)│          │  AudioPlayer     │
+ │  → user_text     │          │  .barge_in()     │
+ └────────┬─────────┘          │  清空 TTS 队列    │
+          │                    └──────────────────┘
+          ▼                             ▲
+ ┌──────────────────┐                  │ TTS 分帧小块
+ │  OpenClaw Gateway │                  │
+ │  /v1/responses    │──── agent_text ──┤
+ │  (非流式)         │                  │
+ └──────────────────┘           ┌──────┴───────┐
+                                │  TTS (edge)  │
+                                └──────────────┘
 ```
 
-## 注意事项
+## 前置条件
 
-1. 确保手机已通过 USB 连接到电脑
-2. 确保 ADB 已正确配置（运行 `adb devices` 验证）
-3. 确保已安装必要依赖：`pip install -r requirements.txt`
-4. 上行音频依赖 scrcpy，下行音频依赖物理声卡
+1. 手机已通过 USB 连接，`adb devices` 可见
+2. 已安装 scrcpy、ffmpeg
+3. 下行音频：外置声卡 → 对录线 → 手机麦/耳机口
+4. 已安装依赖：`pip install -r requirements.txt`
 
 ## 常见问题
 
-**Q: 没有声音怎么办？**
-A: 检查 scrcpy 和 ffmpeg 是否已安装，检查物理音频链路是否正确连接。
+**Q: 没有声音？**
+检查 scrcpy/ffmpeg 路径，`adb devices` 是否有设备。
 
-**Q: 对方听不到声音怎么办？**
-A: 检查下行音频链路（声卡 → 对录线 → 手机麦克风）。
+**Q: 对方听不到声音？**
+检查下行链路：PC 声卡 → 对录线 → 手机麦/耳机口。
 
-**Q: 无法拨打电话怎么办？**
-A: 运行 `adb devices` 确认手机已连接，检查手机设置中允许 ADB 调试。
+**Q: 未配 Gateway 怎么办？**
+PhoneSkill 自动使用 `mock_reply`（可通过 `PHONE_SKILL_MOCK_REPLY` 自定义），适合本地调试。
 
-**Q: HTTP API 无法访问怎么办？**
-A: 检查 phone_skill 是否已启动，端口是否被占用（默认 8080）。
+**Q: 打断不够灵敏？**
+减小 `tts_frame_ms`（如 10），使下行更小块；或降低 `UtteranceSegmenterConfig.energy_speech`。
+
+**Q: HTTP API 无法访问？**
+检查 PhoneSkill 是否已启动，端口 8080 是否被占用。

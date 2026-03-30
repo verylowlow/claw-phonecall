@@ -57,39 +57,57 @@ class PhoneController:
         
         logger.info(f"PhoneController initialized for device: {device_id or 'default'}")
     
-    def _build_adb_command(self, command: str) -> list:
+    def _build_adb_command(self, command: str, use_root: bool = False) -> list:
         """
         构建 ADB 命令
-        
+
         Args:
             command: shell 命令
-            
+            use_root: 是否使用 root 权限执行
+
         Returns:
             命令列表
         """
-        cmd = ["adb"]
+        cmd = [config.get_tool_path("adb")]
         if self.device_id:
             cmd.extend(["-s", self.device_id])
-        cmd.extend(["shell", command])
+        if use_root:
+            cmd.extend(["shell", "su -c", command])
+        else:
+            cmd.extend(["shell", command])
         return cmd
     
-    def _run_adb_command(self, command: str, timeout: int = None) -> tuple:
+    def _run_adb_command(self, command: str, timeout: int = None, use_root: bool = False) -> tuple:
         """
         执行 ADB 命令
-        
+
         Args:
             command: shell 命令
             timeout: 超时时间（秒）
-            
+            use_root: 是否尝试使用 root 权限（先尝试普通命令，失败再尝试 su）
+
         Returns:
             (returncode, stdout, stderr)
         """
         if timeout is None:
             timeout = config.ADB_CONFIG["timeout"]
-        
-        cmd = self._build_adb_command(command)
-        
+
+        # 先尝试普通命令
+        cmd = self._build_adb_command(command, use_root=False)
+
         try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout
+            )
+            # 如果成功或者不需要 root，直接返回
+            if result.returncode == 0 or not use_root:
+                return result.returncode, result.stdout.strip(), result.stderr.strip()
+            # 如果失败且需要 root，尝试用 su
+            logger.warning(f"Command failed, retrying with su: {command}")
+            cmd = self._build_adb_command(command, use_root=True)
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -195,79 +213,89 @@ class PhoneController:
     def dial_and_call(self, phone_number: str) -> bool:
         """
         拨打电话并自动呼叫
-        
+
         Args:
             phone_number: 电话号码
-            
+
         Returns:
             bool: 是否成功
         """
-        # 先打开拨号盘
-        if not self.dial(phone_number):
-            return False
-        
-        # 等待拨号盘打开
-        time.sleep(1)
-        
-        # 模拟点击拨打按钮 (KEYCODE_CALL = 5)
-        cmd = "input keyevent 5"
+        # 清理号码格式
+        phone_number = phone_number.strip().replace(" ", "").replace("-", "")
+
+        # 直接使用 ACTION_CALL 发起呼叫
+        cmd = f"am start -a android.intent.action.CALL tel:{phone_number}"
         returncode, stdout, stderr = self._run_adb_command(cmd)
-        
+
         if returncode == 0:
             logger.info(f"Call initiated to {phone_number}")
             return True
         else:
-            logger.warning(f"Keyevent 5 failed, trying service call: {stderr}")
-            # 备选方案: 使用 service call
-            cmd = "service call phone 1"
-            returncode, stdout, stderr = self._run_adb_command(cmd)
-            return returncode == 0
-    
+            logger.warning(f"ACTION_CALL failed, trying ACTION_DIAL: {stderr}")
+            # 备选: 使用 ACTION_DIAL 打开拨号盘，然后点击拨打
+            if not self.dial(phone_number):
+                return False
+
+            time.sleep(1)
+            # 模拟点击拨打按钮 (KEYCODE_CALL = 5)
+            cmd = "input keyevent 5"
+            returncode, stdout, stderr = self._run_adb_command(cmd, use_root=True)
+
+            if returncode == 0:
+                logger.info(f"Call initiated to {phone_number}")
+                return True
+            else:
+                # 备选方案: 使用 service call (需要 root)
+                logger.warning(f"Keyevent 5 failed, trying service call: {stderr}")
+                cmd = "service call phone 1"
+                returncode, stdout, stderr = self._run_adb_command(cmd, use_root=True)
+                return returncode == 0
+
     def answer(self) -> bool:
         """
         接听电话 (模拟耳机接听键)
-        
+
         Returns:
             bool: 是否成功接听
         """
-        # 先唤醒屏幕
+        # 先唤醒屏幕，需要 root 权限
         cmd = "input keyevent 26"
-        self._run_adb_command(cmd)
+        self._run_adb_command(cmd, use_root=True)
         time.sleep(0.3)
-        
-        # 模拟接听按键 (KEYCODE_CALL = 5)
+
+        # 模拟接听按键 (KEYCODE_CALL = 5)，需要 root 权限
         cmd = "input keyevent 5"
-        returncode, stdout, stderr = self._run_adb_command(cmd)
-        
+        returncode, stdout, stderr = self._run_adb_command(cmd, use_root=True)
+
         if returncode == 0:
             logger.info("Call answered")
             return True
         else:
-            # 备选: service call
+            # 备选: service call (需要 root)
             logger.warning(f"Keyevent 5 failed, trying service call: {stderr}")
             cmd = "service call phone 2"
-            returncode, stdout, stderr = self._run_adb_command(cmd)
+            returncode, stdout, stderr = self._run_adb_command(cmd, use_root=True)
             return returncode == 0
-    
+
     def hangup(self) -> bool:
         """
         挂断电话
-        
+
         Returns:
             bool: 是否成功挂断
         """
-        # 模拟挂断按键 (KEYCODE_ENDCALL = 6)
+        # 模拟挂断按键 (KEYCODE_ENDCALL = 6)，需要 root 权限
         cmd = "input keyevent 6"
-        returncode, stdout, stderr = self._run_adb_command(cmd)
-        
+        returncode, stdout, stderr = self._run_adb_command(cmd, use_root=True)
+
         if returncode == 0:
             logger.info("Call hung up")
             return True
         else:
-            # 备选: service call
+            # 备选: service call (需要 root)
             logger.warning(f"Keyevent 6 failed, trying service call: {stderr}")
             cmd = "service call phone 3"
-            returncode, stdout, stderr = self._run_adb_command(cmd)
+            returncode, stdout, stderr = self._run_adb_command(cmd, use_root=True)
             return returncode == 0
     
     def _monitor_loop(self):
