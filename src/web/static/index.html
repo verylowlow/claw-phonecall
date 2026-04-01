@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgentCallCenter - 控制台</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>AgentCallCenter</h1>
+            <nav>
+                <a href="/" class="active">控制台</a>
+                <a href="/records">通话记录</a>
+            </nav>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="stats-row" id="stats-row">
+            <div class="stat-card">
+                <div class="label">总通话数</div>
+                <div class="value" id="stat-total">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">今日通话</div>
+                <div class="value" id="stat-today">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">今日总时长</div>
+                <div class="value" id="stat-duration">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">今日成功率</div>
+                <div class="value" id="stat-rate">--</div>
+            </div>
+        </div>
+
+        <h2 class="section-title">设备状态</h2>
+        <div class="devices-row" id="devices-row"></div>
+
+        <h2 class="section-title">活跃通话</h2>
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr><th>CallSid</th><th>号码</th><th>状态</th><th>时长</th></tr>
+                </thead>
+                <tbody id="active-calls"></tbody>
+            </table>
+        </div>
+
+        <h2 class="section-title">最近通话</h2>
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr><th>号码</th><th>方向</th><th>时间</th><th>时长</th><th>后端</th><th>状态</th></tr>
+                </thead>
+                <tbody id="recent-calls"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+    <script>
+        async function loadDashboard() {
+            try {
+                const data = await api('/api/dashboard');
+                document.getElementById('stat-total').textContent = data.total_calls;
+                document.getElementById('stat-today').textContent = data.today_calls;
+                document.getElementById('stat-duration').textContent = formatDuration(data.today_duration);
+                document.getElementById('stat-rate').textContent = data.today_success_rate + '%';
+
+                const devRow = document.getElementById('devices-row');
+                devRow.innerHTML = '';
+                if (data.devices && data.devices.length) {
+                    data.devices.forEach(d => {
+                        devRow.innerHTML += `
+                            <div class="device-card ${d.status}">
+                                <div class="device-type">${escHtml(d.backend_type)}</div>
+                                <div>ID: ${escHtml(d.device_id)}</div>
+                                <span class="device-status ${d.status}">${d.status}</span>
+                                ${d.last_active ? '<div style="font-size:12px;color:var(--text-muted);margin-top:4px">最后活跃: ' + formatTime(d.last_active) + '</div>' : ''}
+                            </div>`;
+                    });
+                } else {
+                    devRow.innerHTML = '<div style="color:var(--text-muted)">暂无设备</div>';
+                }
+
+                const activeBody = document.getElementById('active-calls');
+                const sessions = data.active_sessions || {};
+                const sids = Object.keys(sessions);
+                if (sids.length) {
+                    activeBody.innerHTML = sids.map(sid => {
+                        const s = sessions[sid];
+                        return `<tr>
+                            <td style="font-family:monospace;font-size:12px">${escHtml(s.call_sid.slice(0,12))}...</td>
+                            <td>${escHtml(s.to)}</td>
+                            <td><span class="badge active">${escHtml(s.status)}</span></td>
+                            <td>${formatDuration(s.duration)}</td>
+                        </tr>`;
+                    }).join('');
+                } else {
+                    activeBody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">当前无活跃通话</td></tr>';
+                }
+
+                const recentBody = document.getElementById('recent-calls');
+                if (data.recent_calls && data.recent_calls.length) {
+                    recentBody.innerHTML = data.recent_calls.map(c => `
+                        <tr>
+                            <td>${escHtml(c.phone_number)}</td>
+                            <td>${c.direction === 'outbound' ? '呼出' : '呼入'}</td>
+                            <td>${formatTime(c.start_time)}</td>
+                            <td>${formatDuration(c.duration)}</td>
+                            <td>${escHtml(c.backend_type)}</td>
+                            <td><span class="badge ${c.status}">${escHtml(c.status)}</span></td>
+                        </tr>`).join('');
+                } else {
+                    recentBody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted)">暂无通话记录</td></tr>';
+                }
+            } catch (e) {
+                console.error('Dashboard load error:', e);
+            }
+        }
+
+        loadDashboard();
+        setInterval(loadDashboard, 5000);
+    </script>
+</body>
+</html>

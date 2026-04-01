@@ -1,48 +1,22 @@
-# 环境与会话
-.env
-.venv/
-venv/
-env/
-
-# Python
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
+*.pyc
+*.pyo
+.env
 *.egg-info/
-.eggs/
 dist/
 build/
-
-# 日志与本地产物
+.eggs/
+data/
+recordings/
 logs/
-*.log
-test-log-*.txt
-
-# 临时音频/媒体文件
-*.m4a
-*.mp3
-*.wav
-*.opus
-
-# 预生成话术缓存（运行时自动生成）
-cache/
-
-# Claude / Cursor 本地设置
 .claude/
-
-# scrcpy 二进制发行版（体积大，按需取消注释）
-scrcpy-win64-v3.3.3/
-
-# 测试截图
-tests/screen.png
-
-# IDE
-.idea/
-.vscode/
-*.swp
-
-# OS
-.DS_Store
-Thumbs.db
+.cursor/
+*.db
+*.db-journal
+*.wav
+*.mp3
+*.m4a
+*.opus
+venv/
+.venv/
+.pytest_cache/
