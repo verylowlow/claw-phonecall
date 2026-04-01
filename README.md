@@ -12,11 +12,11 @@ Bridge 对 voice-call 伪装成 Twilio：
 - 实现 `POST /2010-04-01/Accounts/{sid}/Calls.json`（创建通话）
 - 接收 TwiML 响应并解析 `<Stream>` WebSocket 地址
 - 通过 WebSocket 与 voice-call 双向传输 mulaw 8kHz 音频
-- 同时对接本地硬件（USB 语音调制解调器 / Android 手机 / SIP）
+- 同时对接本地硬件（SIMCom 蜂窝模块 / USB 语音调制解调器 / Android 手机）
 
 ## 功能
 
-- **多硬件后端**：USB Voice Modem (AT 指令)、Android (ADB + scrcpy)、Mock (测试)
+- **多硬件后端**：SIM7600 4G LTE（推荐）、SIM800C 2G GSM、USB Voice Modem、Android、Mock
 - **双向录音**：自动录制上行+下行音频，按号码归档为 WAV
 - **Web 管理后台**：控制台面板 + 通话记录列表（搜索、播放、下载）
 - **SQLite 数据库**：通话记录、设备状态持久化
@@ -77,7 +77,30 @@ python -m src.server
 
 ## 硬件后端
 
-### USB Voice Modem（推荐）
+### SIM7600 4G LTE（推荐）
+
+```env
+BRIDGE_BACKEND=sim7600
+SIMCOM_AT_PORT=COM5
+SIMCOM_AUDIO_PORT=COM6
+SIMCOM_BAUD_RATE=115200
+```
+
+硬件：SIM7600G-H USB Dongle + 4G SIM 卡，插入 PC USB 即可。
+SIM7600 会创建多个 COM 口，在设备管理器中找到 AT 端口和 Audio 端口。
+
+### SIM800C 2G GSM（测试用）
+
+```env
+BRIDGE_BACKEND=sim800c
+SIMCOM_AT_PORT=COM3
+# SIMCOM_AUDIO_PORT=    # SIM800C 共用单端口，留空
+SIMCOM_BAUD_RATE=115200
+```
+
+硬件：SIM800C USB 模块 + 2G SIM 卡。注意：2G 网络正在退网，仅用于开发测试。
+
+### USB Voice Modem（固话线路）
 
 ```env
 BRIDGE_BACKEND=usb_modem
@@ -111,9 +134,12 @@ src/
 │   ├── ws_client.py           # WebSocket 客户端
 │   ├── codec.py               # PCM/mulaw 编解码
 │   └── protocol.py            # 消息类型定义
-├── backends/                  # 硬件后端
-│   ├── base.py                # 抽象接口
-│   ├── usb_modem.py           # USB Voice Modem
+├── backends/                  # 硬件后端（可插拔）
+│   ├── base.py                # 抽象接口 TelephonyBackend
+│   ├── simcom_base.py         # SIMCom 通用基类（AT 命令 + PCM）
+│   ├── sim7600.py             # SIM7600 4G LTE（推荐）
+│   ├── sim800c.py             # SIM800C 2G GSM（测试用）
+│   ├── usb_modem.py           # USB Voice Modem（固话）
 │   ├── android.py             # ADB + scrcpy
 │   └── mock.py                # 测试用 Mock
 ├── recording/                 # 双向录音

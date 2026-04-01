@@ -299,8 +299,25 @@ async def start_device_monitoring() -> None:
     backend_type = BRIDGE_CONFIG["backend_type"]
     logger.info("Initializing backend: %s", backend_type)
 
-    if backend_type == "usb_modem":
-        import os
+    import os
+
+    if backend_type == "sim800c":
+        from src.backends.sim800c import SIM800CBackend
+        at_port = os.getenv("SIMCOM_AT_PORT", "COM3")
+        audio_port = os.getenv("SIMCOM_AUDIO_PORT", "") or None
+        baud = int(os.getenv("SIMCOM_BAUD_RATE", "115200"))
+        backend = SIM800CBackend(at_port, audio_port, baud)
+        await backend.initialize()
+        set_backend(backend)
+    elif backend_type == "sim7600":
+        from src.backends.sim7600 import SIM7600Backend
+        at_port = os.getenv("SIMCOM_AT_PORT", "COM5")
+        audio_port = os.getenv("SIMCOM_AUDIO_PORT", "COM6")
+        baud = int(os.getenv("SIMCOM_BAUD_RATE", "115200"))
+        backend = SIM7600Backend(at_port, audio_port, baud)
+        await backend.initialize()
+        set_backend(backend)
+    elif backend_type == "usb_modem":
         from src.backends.usb_modem import USBModemBackend
         port = os.getenv("MODEM_PORT", "COM3")
         baud = int(os.getenv("MODEM_BAUD_RATE", "115200"))
