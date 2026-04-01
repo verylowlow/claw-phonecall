@@ -35,6 +35,11 @@ tools:
 | 打断 | 用户开口即中断 TTS（barge-in） |
 | 通话记录 | SQLite 存储，HTTP API 查询 |
 
+## 部署路径
+
+项目部署在 `PHONE_SKILL_PROJECT_PATH` 环境变量指定的目录，或默认 `/opt/claw-phonecall`。
+下文所有命令中 `$PROJECT` 代指该路径。
+
 ## 使用方法
 
 ### 1. 发起外呼
@@ -42,43 +47,37 @@ tools:
 当用户说「拨打 XXX」或「给 XXX 打电话」时：
 
 ```bash
-python -m src.phone_skill call <电话号码>
+cd $PROJECT && python -m src.phone_skill call <电话号码>
 ```
 
 示例：
 
 ```bash
-python -m src.phone_skill call 13800138000
-```
-
-或通过 CLI：
-
-```bash
-python -m src outbound 13800138000
+cd /opt/claw-phonecall && python -m src.phone_skill call 13800138000
 ```
 
 ### 2. 监听来电
 
 ```bash
-python -m src inbound
+cd $PROJECT && python -m src inbound
 ```
 
 ### 3. 挂断电话
 
 ```bash
-python -m src.cli hangup
+cd $PROJECT && python -m src.cli hangup
 ```
 
 ### 4. 查看通话状态
 
 ```bash
-python -m src.cli status
+cd $PROJECT && python -m src.cli status
 ```
 
 ### 5. 组件自检
 
 ```bash
-python -m src.phone_skill test
+cd $PROJECT && python -m src.phone_skill test
 ```
 
 ## 事件流
@@ -104,13 +103,20 @@ PhoneSkill 以异步生成器方式持续 yield 事件，每条为 JSON：
 | `status:connecting` | 等待接通 |
 | `status:call_started` | 通话建立，欢迎语已播放 |
 | `status:barge_in` | 用户打断了 TTS 播放 |
+| `status:thinking_played` | 播放了思考话术（Gateway 慢） |
+| `status:apology_played` | 播放了道歉话术（持续无输出） |
+| `status:max_duration_reached` | 通话时长达上限，自动挂断 |
+| `status:capture_lost` | 音频管道断裂 |
 | `status:ended` | 通话结束 |
 | `status:failed` | 失败（附 `reason`） |
 | `user_speaking` | ASR 转写结果（`final: true`） |
 | `agent_text` | Agent 原始回复文本（TTS 播放前） |
 | `agent_responding` | TTS 播放完成 |
+| `call_summary` | 通话结束后的摘要（时长、轮次、transcript） |
 
 ## 代码调用
+
+在项目目录（`$PROJECT`）下：
 
 ```python
 import asyncio
@@ -145,7 +151,7 @@ asyncio.run(main())
 | `OPENCLAW_AGENT_ID` | Agent ID，默认 `main` |
 | `PHONE_SKILL_MOCK_REPLY` | 未连 Gateway 时的占位回复 |
 
-## 关键配置（`src/config.py`）
+## 关键配置（`src/config.py` → `CALL_CONFIG`）
 
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
@@ -153,7 +159,16 @@ asyncio.run(main())
 | `utterance_min_speech_ms` | 250 | 最短有效语音，过滤噪声 |
 | `tts_frame_ms` | 20 | TTS 分帧大小，越小打断延迟越低 |
 | `max_audio_duration_ms` | 15000 | 单句最长录音 |
-| `welcome_message` | 喂，您好，请问哪位？ | 接通后自动播放 |
+| `agent_name` | 小甜甜 | AI 客服名称，用于问候语 |
+| `welcome_templates` | (按时段) | 上午/下午/晚上问候语模板 |
+| `thinking_delay_ms` | 3000 | 等待多久后播放思考话术 |
+| `thinking_phrases` | ["好的,我听到了..."] | 思考话术列表 |
+| `apology_interval_s` | 10 | 道歉话术重播间隔（秒） |
+| `apology_message` | "您好,非常抱歉..." | 持续无输出时的道歉话术 |
+| `farewell_message` | "感谢您的来电..." | 通话结束告别语 |
+| `max_call_duration` | 600 | 单次通话最大时长（秒） |
+| `gateway_timeout_s` | 10 | Gateway 请求硬超时（秒） |
+| `gateway_fallback_reply` | "抱歉信号不太好..." | Gateway 超时后的兜底回复 |
 | `filler_phrases` | ["嗯","好的","我在听"] | 填充词预缓存列表 |
 
 ## HTTP API

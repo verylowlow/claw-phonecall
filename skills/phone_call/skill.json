@@ -1,0 +1,11 @@
+{
+  "name": "phone_call",
+  "version": "2.0.0",
+  "description": "AI电话Agent - 基于真实安卓手机的智能外呼/接听，对齐 voice-call：句末ASR → Agent回复 → TTS分帧下行，支持barge-in打断",
+  "author": "AI Phone Agent Team",
+  "requiredTools": ["bash"],
+  "tags": ["phone", "call", "ai", "telephony", "voice-call", "barge-in"],
+  "config": {
+    "projectPath": "/opt/claw-phonecall"
+  }
+}

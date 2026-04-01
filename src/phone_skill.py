@@ -533,7 +533,7 @@ async def main() -> None:
     args = parser.parse_args()
 
     if args.command == "call":
-        phone_number = args.args[0] if args.args else "13800138000"
+        phone_number = args.args[0] if args.args else "16511244888"
         skill = PhoneSkill()
         await skill.initialize()
         try:
