@@ -1,0 +1,6 @@
+openpyxl
+pyyaml
+webrtcvad
+requests
+numpy
+edge-tts

@@ -1,0 +1,23 @@
+---
+name: 设备兼容性报告
+about: 报告某台手机能否跑通（root / ALSA / 驱动差异很大）
+title: "[Device] "
+labels: device
+assignees: ''
+---
+
+## 设备信息
+| 项 | 值 |
+|---|---|
+| 机型 | |
+| Android 版本 | |
+| Root 方案 | |
+| Root 版本 | |
+
+## 验证结果
+- [ ] `adb devices` 显示 `device`（非 unauthorized）
+- [ ] 音频通路可用（ALSA 设备 + FIFO 管道已建立）
+- [ ] 能实际拨出一通电话并采集到音频
+
+## 备注
+<!-- 特殊驱动适配、踩过的坑等 -->

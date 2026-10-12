@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用问题 / 怎么配
+    url: https://github.com/verylowlow/claw-phonecall/discussions
+    about: 配置、机型适配、延迟调优等讨论请发到 Discussions，那里更容易被看到
+  - name: 合规与使用边界
+    url: https://github.com/verylowlow/claw-phonecall/discussions
+    about: 本项目仅供有合法业务关系场景使用，相关边界讨论请发 Discussions
