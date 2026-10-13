@@ -46,7 +46,7 @@ class DialogManager:
         self.adb = adb_control
         self.audio = audio_manager
         self.asr = asr_client
-        self.tts = tts
+        self.tts = tts_client          # 修复:原为 self.tts = tts -> NameError
         self.vad = vad_detector
         
         self.config = config or {}
@@ -132,43 +132,33 @@ class DialogManager:
         """对话循环"""
         from vad import AudioBuffer
         from asr_client import StreamASRHandler
-        
+
         # 初始化组件
         audio_buffer = AudioBuffer()
         asr_handler = StreamASRHandler(self.asr, self.vad, audio_buffer)
-        
-        # 设置VAD回调
-        def on_speech_start():
-            audio_buffer.start_recording()
-        
-        def on_speech_end():
-            if audio_buffer.get_duration() > 0.3:
-                try:
-                    audio = audio_buffer.stop_recording()
-                    result = self.asr.recognize(audio, timeout=5)
-                    if result:
-                        self._handle_user_input(result)
-                except Exception as e:
-                    print(f"识别错误: {e}")
-        
-        self.vad.on_speech_start = on_speech_start
-        self.vad.on_speech_end = on_speech_end
-        
+        # 必须先 start,否则 process_audio 会一直直接返回 None
+        asr_handler.start()
+
+        # 结束对话时也要停掉 ASR 处理
+        self._asr_handler = asr_handler
+
         # 开始音频采集
         self.audio.start()
-        
+
         # 循环处理
         while self.is_running and self.current_turn < self.max_turns:
             # 获取音频
             audio_chunk = self.audio.get_audio(timeout=1.0)
             if audio_chunk:
-                # VAD处理
-                asr_handler.process_audio(audio_chunk)
-            
+                # VAD + ASR 处理;识别到有效文本就走对话
+                result = asr_handler.process_audio(audio_chunk)
+                if result:
+                    self._handle_user_input(result)
+
             # 检查是否结束
             if self.state == DialogState.ENDING:
                 break
-        
+
         # 结束对话
         self._end_conversation()
     
@@ -228,29 +218,35 @@ class DialogManager:
     def _play_and_wait(self, text: str):
         """
         播放TTS并等待完成
-        
+
         Args:
             text: 要播放的文本
         """
         try:
             # 合成语音
-            audio = self.tts.synthesize(text)
-            
-            # 播放
-            self.audio.player.play_tts_stream(audio)
-            
-            # 等待播放完成 (简单等待)
-            time.sleep(len(text) / 5)  # 估算
+            audio_path = self.tts.synthesize(text)
+
+            # 播放(注意: 传路径而不是 bytes, play_audio_file 内部会 push 到手机)
+            self.audio.player.play_audio_file(audio_path)
+
+            # 等待播放完成
+            # 中文 TTS 语速约 4.5 字/秒,给10% 余量;比原 5 字/秒更稳
+            time.sleep(len(text) / 4.5 * 1.1)
         except Exception as e:
             print(f"播放失败: {e}")
     
     def _end_conversation(self):
         """结束对话"""
         self.is_running = False
-        
+
+        # 停掉 ASR 处理(如果在跑)
+        handler = getattr(self, "_asr_handler", None)
+        if handler:
+            handler.stop()
+
         # 播放结束语
         self._play_and_wait("好的，再见")
-        
+
         # 挂断
         self.adb.hangup()
         

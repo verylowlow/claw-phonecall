@@ -7,6 +7,7 @@ ADB手机控制模块
 import subprocess
 import time
 import re
+import os
 from typing import Optional, Dict
 
 
@@ -31,17 +32,23 @@ class ADBControl:
             adb_cmd = f"adb -s {self.device_serial}"
         else:
             adb_cmd = "adb"
-        
+
         # 如果需要root权限，用su -c包装
+        # 注意: 传进来的 command 已含 "shell " 前缀，
+        # 不能原样塞进 su -c(会变成 `su -c "shell input ..."` → 手机上找不到 shell 命令)。
+        # 必须先剥掉 shell 前缀，交给 su 在设备侧执行真正的 input 命令。
         if self.use_root and command.startswith("shell input"):
-            full_cmd = f"{adb_cmd} shell 'su -c \"{command}\"'"
+            inner = command[len("shell "):]
+            full_cmd = f'{adb_cmd} shell "su -c \'{inner}\'"'
         else:
+            # 其余命令原样拼接: 调用方已自行区分主机侧(devices/forward)
+            # 与设备侧(shell xxx),这里不能擅自加或减 "shell"。
             full_cmd = f"{adb_cmd} {command}"
-        
+
         result = subprocess.run(
-            full_cmd, 
-            shell=use_shell, 
-            capture_output=True, 
+            full_cmd,
+            shell=use_shell,
+            capture_output=True,
             text=True,
             check=check
         )
@@ -183,15 +190,30 @@ class ADBControl:
     
     def take_screenshot(self, save_path: str) -> bool:
         """
-        截屏
-        
+        截屏并拉回本机
+
         Args:
-            save_path: 保存路径
-            
+            save_path: 本机保存路径(不是设备端路径)
+
         Returns:
             是否成功截屏
         """
-        self._run_command(f"shell screencap -p {save_path}", check=False)
+        # 先截到设备临时目录,再 pull 回本机。
+        # 直接 screencap 到本机路径是错的 —— 那是设备端路径,文件留在手机上。
+        remote_path = "/data/local/tmp/_claw_screenshot.png"
+        self._run_command(f"shell screencap -p {remote_path}", check=False)
+
+        # 确保本机目录存在
+        try:
+            parent = os.path.dirname(os.path.abspath(save_path))
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+        except Exception as e:
+            print(f"创建目录失败: {e}")
+            return False
+
+        self._run_command(f"pull {remote_path} {save_path}", check=False)
+        self._run_command(f"shell rm -f {remote_path}", check=False)
         return True
     
     def open_app(self, package_name: str) -> bool:

@@ -28,6 +28,11 @@ class VADDetector:
         self.is_speaking = False
         self.silence_count = 0
         self.speech_count = 0
+
+        # 回调(可由外部注入; 为 None 时不触发)
+        self.on_speech_start = None
+        self.on_speech_end = None
+        self.on_silence = None
         
         # 配置参数
         self.silence_threshold = 20  # 连续多少帧静音认为对方停止说话
@@ -62,46 +67,54 @@ class VADDetector:
     
     def update(self, audio_chunk: bytes) -> str:
         """
-        更新VAD状态
-        
+        更新VAD状态并触发回调
+
         Args:
             audio_chunk: 音频数据
-            
+
         Returns:
-            状态: "speaking", "silence", "start", "stop"
+            状态: "start" / "speaking" / "stop" / "silence"
         """
         has_speech = self.is_speech(audio_chunk)
-        
+        fired = None
+
         if has_speech:
             self.speech_count += 1
             self.silence_count = 0
-            
+
             if not self.is_speaking and self.speech_count >= self.speech_threshold:
                 # 开始说话
                 self.is_speaking = True
                 self.speech_count = 0
-                return "start"
-            
-            if self.is_speaking:
-                return "speaking"
+                fired = "on_speech_start"
+                status = "start"
+            else:
+                status = "speaking" if self.is_speaking else "silence"
         else:
             self.silence_count += 1
             self.speech_count = 0
-            
+
             if self.is_speaking and self.silence_count >= self.silence_threshold:
-                # 停止说话
+                # 连续静音达阈值 -> 判定对方说完
                 self.is_speaking = False
                 self.silence_count = 0
-                return "stop"
-            
-            if not self.is_speaking:
-                return "silence"
-        
-        # 正在说话
-        if self.is_speaking:
-            return "speeding"
-        
-        return "silence"
+                fired = "on_speech_end"
+                status = "stop"
+            else:
+                # 刚进入静音的第 1 帧,用于区分"句中停顿"与"真结束"
+                if not self.is_speaking and self.silence_count == 1:
+                    fired = "on_silence"
+                status = "speaking" if self.is_speaking else "silence"
+
+        if fired:
+            callback = getattr(self, fired, None)
+            if callable(callback):
+                try:
+                    callback()
+                except Exception as e:      # 回调异常不应打断音频循环
+                    print(f"VAD 回调 {fired} 异常: {e}")
+
+        return status
     
     def reset(self):
         """重置状态"""
@@ -111,35 +124,20 @@ class VADDetector:
 
 
 class VADWithCallback(VADDetector):
-    """带回调的VAD - 用于异步处理"""
-    
-    def __init__(self, sample_rate: int = 16000, frame_duration: int = 30):
-        super().__init__(sample_rate, frame_duration)
-        
-        self.on_speech_start = None
-        self.on_speech_end = None
-        self.on_silence = None
-    
+    """带回调的VAD - 用于异步处理
+
+    注意: 基类 VADDetector.update() 已负责触发 on_speech_start /
+    on_speech_end / on_silence,因此这里只需转发,不要重复触发。
+    """
+
     def process(self, audio_chunk: bytes) -> str:
         """
-        处理音频并触发回调
-        
+        处理音频(update 已触发回调)
+
         Returns:
             状态
         """
-        status = self.update(audio_chunk)
-        
-        # 触发回调
-        if status == "start" and self.on_speech_start:
-            self.on_speech_start()
-        elif status == "stop" and self.on_speech_end:
-            self.on_speech_end()
-        elif status == "silence" and self.on_silence:
-            # 只有在说话后的静音才触发
-            if self.silence_count == 1:
-                self.on_silence()
-        
-        return status
+        return self.update(audio_chunk)
 
 
 class AudioBuffer:

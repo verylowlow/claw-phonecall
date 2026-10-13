@@ -37,8 +37,11 @@ class VolcanoASR:
         self.result_queue = queue.Queue()
         
         # 配置
+        # 注意: 采集端 audio_capture.py 用 `arecord -t raw`,产出的是
+        # 无文件头的裸 PCM,不是 WAV 容器,所以 format 必须是 "raw"。
+        # 若这里写 "wav",服务端会去找 RIFF 头,识别结果为空或直接报错。
         self.config = {
-            "format": "wav",
+            "format": "raw",
             "rate": 16000,
             "bits": 16,
             "channel": 1,
@@ -75,11 +78,11 @@ class VolcanoASR:
         data = {
             "user": {"uid": "openclaw"},
             "audio": {
-                "format": "wav",
-                "rate": 16000,
-                "bits": 16,
-                "channel": 1,
-                "codec": "raw",
+                "format": self.config["format"],
+                "rate": self.config["rate"],
+                "bits": self.config["bits"],
+                "channel": self.config["channel"],
+                "codec": self.config["codec"],
                 "content": audio_b64
             },
             "request": {
@@ -128,14 +131,15 @@ class VolcanoASR:
         
         if response.status_code == 200:
             result = response.json()
-            if result.get("code") == 1000:  # 成功
+            code = result.get("code")
+            if code == 1000:  # 成功
                 return result.get("result", {}).get("text", "")
-            elif result.get("code") == 1002:  # 处理中
+            elif code == 1002:  # 处理中
                 return None
             else:
-                raise Exception(f"识别错误: {result.get('message', 'unknown')}")
-        
-        return None
+                raise Exception(f"识别错误(code={code}): {result.get('message', 'unknown')}")
+
+        raise Exception(f"查询失败: HTTP {response.status_code}")
     
     def recognize(self, audio_data: bytes, timeout: int = 10) -> Optional[str]:
         """
@@ -189,6 +193,14 @@ class StreamASRHandler:
         self.is_processing = False
         self.last_result = ""
         
+    def start(self) -> None:
+        """启动处理(必须在 process_audio 之前调用,否则会直接返回 None)"""
+        self.is_processing = True
+
+    def stop(self) -> None:
+        """停止处理"""
+        self.is_processing = False
+
     def process_audio(self, audio_chunk: bytes) -> Optional[str]:
         """
         处理音频chunk
@@ -204,11 +216,12 @@ class StreamASRHandler:
         
         # VAD检测
         status = self.vad.update(audio_chunk)
-        
-        # 开始说话，开始录音
+
+        # 开始说话：清空缓冲并把这一帧也存进去(否则首帧语音会丢)
         if status == "start":
             self.buffer.start_recording()
-        
+            self.buffer.add(audio_chunk)
+
         # 说话中，继续录音
         elif status == "speaking":
             self.buffer.add(audio_chunk)
