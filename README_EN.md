@@ -43,6 +43,39 @@ OpenClaw voice-call <--REST/WebSocket--> AgentCallCenter Bridge <--hardware--> p
 
 ---
 
+## ⭐ Starring
+
+If this saved you a cloud telephony bill, or you're deploying an AI voice stack on-prem,
+**hit the Star button** — it's the most direct support, and it helps others doing the same
+thing find the project.
+
+It also helps me validate that maintaining this is worthwhile. If you want to go further:
+
+- **Open an issue**: for bugs, please include your module model (SIM7600 / SIM800C / USB modem /
+  Android) and which COM ports are AT vs audio — that alone saves a round trip.
+- **PRs with hardware are especially welcome**: `backends/` is pluggable, and adding a backend
+  doesn't require touching the main flow.
+- **Post your use case in Discussions**: AI receptionists, reminders, callbacks, booking —
+  the constraints differ a lot between them.
+
+## 💬 Discussions
+
+Already enabled. Topics worth opening:
+
+| Category | Good for |
+|---|---|
+| Q&A | Wiring, serial ports, troubleshooting calls |
+| Hardware | Real-world behaviour per module model |
+| Show and tell | What your bridge setup looks like |
+| Ideas | Hardware you want supported |
+
+## 🤝 Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Short version: open an issue before large changes,
+and run `python -m pytest tests/ -v` before submitting.
+
+---
+
 ## Quick start
 
 ### 1. Install
