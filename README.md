@@ -40,6 +40,36 @@ OpenClaw voice-call <--REST/WebSocket--> AgentCallCenter Bridge <--硬件--> 电
 
 ---
 
+## ⭐ Star 支持
+
+如果这个项目帮你省掉了云 telephony 的账单，或者你正在做本地部署的 AI 语音，
+**点一下 Star** —— 这是对本项目最实在的支持，也会让更多做同样事情的人找到它。
+
+你的 Star 也帮我在真实场景里验证维护的价值。如果你愿意更进一步：
+
+- **提 Issue**：报 bug 请附上模块型号（SIM7600 / SIM800C / USB Modem / Android）
+  和 AT 口、音频口编号，这两项能省掉一整轮来回
+- **带硬件的 PR 尤其欢迎**：`backends/` 是可插拔的，新增一个后端不需要动主流程
+- **把你的话术/场景写进 Discussions**：AI 客服、催收、回访、预约，各行的差异很大
+
+## 💬 Discussions
+
+已经开启，几个常聊的话题方向：
+
+|分类 | 适合聊什么 |
+|---|---|
+| Q&A | 接线、串口、拨号问题的排查 |
+| Hardware | 各型号模块的实测表现 |
+| Show and tell | 你搭的 Bridge 长什么样 |
+| Ideas | 想接但还没支持的硬件 |
+
+## 🤝 贡献
+
+见 [CONTRIBUTING.md](CONTRIBUTING.md)。简单说：改代码请先开 Issue 讨论，
+提交前跑 `python -m pytest tests/ -v`。
+
+---
+
 ## 快速开始
 
 ### 1. 安装
