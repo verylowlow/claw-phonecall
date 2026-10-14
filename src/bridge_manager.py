@@ -147,9 +147,14 @@ class CallSession:
             return False
 
     async def _uplink_loop(self) -> None:
-        """Read audio from hardware backend, encode and send to voice-call."""
-        timestamp_ms = 0
+        """Read audio from hardware backend, encode and send to voice-call.
+
+        时间戳与序号必须跟随墙钟推进，而不是跟随"拿到了几帧音频"。
+        早期版本在拿不到音频时直接 continue，导致 timestamp 在静音期停走，
+        下游按时间戳对齐播放节奏时会误判为断流。
+        """
         chunk_ms = 20
+        started = time.monotonic()
 
         while True:
             if _backend is None:
@@ -158,22 +163,25 @@ class CallSession:
 
             try:
                 pcm = await _backend.read_audio(160)  # 160 samples = 20ms at 8kHz
-                if not pcm:
+
+                if pcm:
+                    payload_b64 = encode_payload(pcm, src_rate=8000)
+
+                    if self._recorder:
+                        self._recorder.feed_uplink(pcm)
+
+                    if self._ws_client and self._ws_client.is_connected:
+                        self._seq_num += 1
+                        self._chunk_num += 1
+                        timestamp_ms = int((time.monotonic() - started) * 1000)
+                        await self._ws_client.send_audio(
+                            payload_b64, self._seq_num, self._chunk_num, timestamp_ms
+                        )
+                else:
+                    # 没有新音频不代表时间静止，保持与墙钟同步，
+                    # 下一次有帧时 timestamp 才是正确的绝对时间。
                     await asyncio.sleep(0.01)
                     continue
-
-                payload_b64 = encode_payload(pcm, src_rate=8000)
-                self._seq_num += 1
-                self._chunk_num += 1
-                timestamp_ms += chunk_ms
-
-                if self._recorder:
-                    self._recorder.feed_uplink(pcm)
-
-                if self._ws_client and self._ws_client.is_connected:
-                    await self._ws_client.send_audio(
-                        payload_b64, self._seq_num, self._chunk_num, timestamp_ms
-                    )
             except asyncio.CancelledError:
                 raise
             except Exception:
