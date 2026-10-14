@@ -1,75 +1,51 @@
-# Claw Phone Call
+# AgentCallCenter (English)
 
-**Let an AI Agent place phone calls using the Android phone already on your desk.**
-No VoIP service to buy, no number to apply for, no SIP trunk to provision — one rooted Android phone and one USB cable is a phone your Agent can drive.
+**A Twilio-compatible local telephony bridge** — lets an OpenClaw `voice-call` setup keep
+all of its AI capabilities (VAD, ASR, Agent, TTS, barge-in) while the audio path runs over
+hardware you own, on-premise. No cloud telephony account, no per-minute billing.
 
-[![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
-[![OpenClaw](https://img.shields.io/badge/skill-OpenClaw-purple.svg)](SKILL.md)
-[![License](https://img.shields.io/badge/license-source--available-informational.svg)](#license)
+> 中文文档见 [README.md](README.md)。
 
-> 中文文档见 [README.md](README.md)。This is the English version.
-
----
-
-## Why "just use the phone you already own"
-
-Building AI voice calling usually means picking one of three options, each with its own pain point:
-
-| Option | The pain |
-|---|---|
-| Cloud AI outreach SaaS | Numbers get flagged fast and connect rates drop; call data lives on someone else's servers; per-minute billing forever |
-| SIP trunk / VoIP number | Requires a business registration; virtual numbers get classified as marketing lines; painful to configure |
-| Buy a voice gateway | Hardware is only the start — now you own the SIP stack and the drivers |
-
-**This project takes a different route: use the phone you already have.** A phone *is* a standard telephone. Insert a SIM and it dials — with a real mobile number and real network quality — using no provider account and no approval process.
-
-Combined with OpenClaw's Agent capabilities, your Agent can call a phone the same way it calls any other tool.
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![License MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 ---
 
-## Capabilities
+## Why
 
-| Capability | Details |
-|---|---|
-| 📞 **Call control** | Dial, answer, hang up, DTMF keypress, call-state detection |
-| 🎙️ **Low-latency audio capture** | ALSA + FIFO pipe design, ~**50 ms** audio-side latency |
-| 🗣️ **Streaming speech recognition** | Volcengine SeedASR streaming transcription (bring your own `app_id` / `access_token`) |
-| 🔊 **Speech synthesis** | **EdgeTTS** (Microsoft Edge engine — **free, no API key**) |
-| 🔊 **VAD** | Voice activity detection to separate speech from silence, with silence-filler phrases |
-| 📱 **Multi-device concurrency** | Multiple phones in simultaneous calls, orchestrated as one pool |
-| 🛠️ **Full device control** | Tap, swipe, Home / power keys, text input, screenshot, start/stop apps |
+Twilio Media Streams is the easiest way to get real-time voice into an AI agent, but it is
+a **metered cloud service** — every call ships audio, text and control frames to somebody
+else's servers. That is a hard requirement for a lot of deployments: regulated data,
+on-prem-only installs, or simply "this must work when the internet doesn't."
 
-### Conversation loop
+AgentCallCenter moves that layer local. It speaks Twilio's REST contract on the outside and
+bridges the audio to whatever hardware you have on the desk — an LTE module, a USB voice
+modem, or an Android phone. **The OpenClaw plugin config barely changes.**
 
 ```
-Agent issues command → dial → wait for answer → play greeting
-   ↓
-┌─ loop ───────────────────────────────┐
-│ capture audio → VAD → ASR transcript │
-│    → LLM → TTS synthesis → play     │
-└─────────────────────────────────────┘
-   ↓
-end keyword hit / max turns reached → hang up
+OpenClaw voice-call <--REST/WebSocket--> AgentCallCenter Bridge <--hardware--> phone line
+   (VAD/ASR/LLM/TTS)               (Twilio-compatible)   (SIM7600 / USB modem / Android)
 ```
 
 ---
 
-## Requirements
+## Features
 
-- **A rooted Android phone** (root is required to reach the ALSA audio devices)
-- USB data cable + USB debugging enabled
-- Python 3.9+ on the host machine
-
-Recommended devices: models with active rooting communities — Xiaomi, OnePlus, realme.
-
-> **Why root?** The audio path runs on the phone's own ALSA devices through a FIFO pipe.
-> That is what makes ~50 ms latency achievable. Unrooted devices cannot open this path.
+| | |
+|---|---|
+| **Twilio REST compatible** | `POST /2010-04-01/Accounts/{sid}/Calls.json`, parses TwiML `<Stream>` |
+| **Multiple hardware backends** | SIM7600 4G LTE (recommended) / SIM800C 2G / USB voice modem / Android / Mock |
+| **Bidirectional audio** | 8 kHz μ-law ↔ 16-bit PCM over WebSocket, automatic resampling |
+| **Barge-in** | Downstream `<clear>` flushes the playback queue |
+| **Two-way recording** | Uplink and downlink saved separately as WAV, filed by number |
+| **Web console** | Dashboard + call history (search / play / download) |
+| **No hard native deps** | Pure-Python G.711 μ-law fallback when `audioop` is unavailable |
 
 ---
 
 ## Quick start
 
-### 1. Install dependencies
+### 1. Install
 
 ```bash
 git clone https://github.com/verylowlow/claw-phonecall.git
@@ -77,150 +53,181 @@ cd claw-phonecall
 pip install -r requirements.txt
 ```
 
+> `audioop` was removed from the standard library in Python 3.13. This repo ships a
+> pure-Python G.711 μ-law implementation as a fallback, so it still runs even when
+> `audioop-lts` cannot be installed.
+
 ### 2. Configure
 
-Edit `configs/settings.yaml`:
-
-```yaml
-adb:
-  mode: usb                # usb or wifi
-  devices:
-    - id: "phone1"
-      serial: "ABCD123456789"    # serial from `adb devices`
-      name: "Test phone 1"
-      phone_number: "13511223344"
-
-volcengine:
-  region: cn-beijing
-  asr:
-    app_id: "YOUR_APP_ID"
-    access_token: "YOUR_ACCESS_TOKEN"
-    resource_id: "volc.seedasr.auc"   # SeedASR model 2.0
+```bash
+cp .env.example .env
 ```
 
-> 🔒 **Credentials**: TTS uses EdgeTTS and needs **no key at all**; only ASR requires Volcengine credentials.
-> Keep real tokens out of the repository — use placeholders in the committed config
-> and keep your real values in a local, untracked file or environment variables.
+The one line you actually need to change first:
 
-### 3. Verify the device
+```env
+BRIDGE_BACKEND=mock      # prove the loop with mock, then switch to real hardware
+```
+
+### 3. Run
 
 ```bash
-adb devices          # status should be `device`, not `unauthorized`
-python scripts/phone_call.py list
+python -m src.server
 ```
 
-### 4. Use it
+- Twilio REST API: `http://127.0.0.1:8080`
+- Web console: `http://127.0.0.1:8080` (`/` dashboard, `/records` call history)
 
-**Python**
+### 4. Point voice-call at the bridge
 
-```python
-from scripts.phone_call import PhoneCall
-
-phone = PhoneCall("ABCD123456789")
-
-# one-shot: dial → wait → converse → hang up
-phone.run_full_call("13800138000", greeting="Hi, this is an AI assistant. How can I help?")
-
-# or drive each step yourself
-phone.dial("13800138000")
-if phone.wait_for_answer(timeout=30):
-    phone.start_conversation()
-    phone.hangup()
+```json5
+{
+  plugins: {
+    entries: {
+      "voice-call": {
+        enabled: true,
+        config: {
+          provider: "twilio",
+          fromNumber: "+14155550123",
+          twilio: {
+            accountSid: "LOCAL_BRIDGE",
+            authToken: "local_token",
+            apiBaseUrl: "http://127.0.0.1:8080"   // ← point at the bridge
+          },
+          publicUrl: "http://127.0.0.1:8080/voice/webhook",
+          streaming: { enabled: true, streamPath: "/voice/stream" }
+        }
+      }
+    }
+  }
+}
 ```
 
-**CLI**
+Nothing else in the plugin changes.
 
-```bash
-python scripts/phone_call.py list              # list connected devices
-python scripts/phone_call.py -s ABCD123 info   # device info
-python scripts/phone_call.py -s ABCD123 dial 13800138000
+---
+
+## Hardware backends
+
+### SIM7600 4G LTE (recommended)
+
+```env
+BRIDGE_BACKEND=sim7600
+SIMCOM_AT_PORT=COM5       # AT command port
+SIMCOM_AUDIO_PORT=COM6    # PCM audio port
+SIMCOM_BAUD_RATE=115200
 ```
 
-**Multiple phones**
+SIM7600G-H USB dongle + a 4G SIM. It enumerates several COM ports — find the AT port
+and the audio port in Device Manager.
 
-```python
-from scripts.phone_call import PhoneCallManager
+### SIM800C 2G GSM (development only)
 
-manager = PhoneCallManager()
-manager.add_device("phone1", "ABCD123456", "13511111111")
-manager.add_device("phone2", "EFGH789012", "13522222222")
-
-connected = manager.dial_and_connect([
-    ("phone1", "13800138000"),
-    ("phone2", "13900139000"),
-])
+```env
+BRIDGE_BACKEND=sim800c
+SIMCOM_AT_PORT=COM3
+# SIMCOM_AUDIO_PORT=      # single shared port, leave empty
 ```
 
-**As an OpenClaw skill**
+⚠️ 2G networks are being retired in most countries. Development use only.
 
-[`SKILL.md`](SKILL.md) is a standard OpenClaw skill definition declaring trigger
-conditions and allowed tools — OpenClaw can load it directly.
+### USB voice modem (landline)
+
+```env
+BRIDGE_BACKEND=usb_modem
+MODEM_PORT=COM3
+```
+
+Wiring: phone line (RJ11) → USB voice modem → PC USB
+
+### Android phone
+
+```env
+BRIDGE_BACKEND=android
+ANDROID_DEVICE_ID=       # auto-detect if empty
+```
+
+Wiring: Android (USB + ADB) + external sound card + 3.5 mm cable
 
 ---
 
 ## Project layout
 
 ```
-claw-phonecall/
-├── SKILL.md                # OpenClaw skill definition
-├── README.md               # Chinese documentation
-├── requirements.txt
-├── configs/
-│   └── settings.yaml       # device + ASR/TTS configuration
-└── scripts/
-    ├── adb_control.py      # ADB device control (dial / keys / tap / screenshot)
-    ├── audio_capture.py    # ALSA + FIFO audio capture and playback
-    ├── vad.py              # voice activity detection + silence filling
-    ├── asr_client.py       # Volcengine SeedASR client
-    ├── tts_player.py       # EdgeTTS player
-    ├── dialog_manager.py   # conversation state machine + multi-device orchestration
-    └── phone_call.py       # main entry point / CLI
+src/
+├── server.py                # entry point (FastAPI + lifespan)
+├── config.py                # env-driven configuration
+├── bridge_manager.py        # call orchestration + media bridge loops
+├── twilio_compat/           # Twilio compatibility layer
+│   ├── rest_api.py          # POST /Calls.json
+│   ├── twiml_parser.py      # parse TwiML <Stream>
+│   └── webhook.py           # status callbacks
+├── media_stream/
+│   ├── ws_client.py         # WebSocket client (with reconnect)
+│   ├── codec.py             # PCM ↔ μ-law ↔ base64
+│   └── protocol.py          # Media Streams messages
+├── backends/                # pluggable hardware backends
+│   ├── base.py              # TelephonyBackend interface
+│   ├── simcom_base.py       # SIMCom AT commands + URC + PCM threads
+│   ├── sim7600.py / sim800c.py
+│   ├── usb_modem.py / android.py / mock.py
+├── recording/               # two-way recording
+├── db/models.py             # SQLite persistence
+└── web/                     # web console
 ```
 
 ---
 
-## FAQ
+## Gotchas (all fixed in this repo)
 
-**Q: What's the latency?**
-About 50 ms on the audio side (ALSA + FIFO). End-to-end also depends on ASR/TTS network round-trips.
+Not a weekend demo — these came out of real debugging. If you are writing your own
+telephony backend, read this section first.
 
-**Q: Is root really required?**
-Yes. Accessing ALSA audio devices requires root — it is the premise of the low-latency design.
+**1. `ATD` is asynchronous — `OK` does not mean connected**
+`ATD<number>;` returns `OK` immediately, which only means "command accepted". The actual
+connect result arrives a few hundred ms later as the URC `VOICE CALL: BEGIN`. An AT read
+loop that breaks on `OK` will never see it → **calls never connect, and nothing logs an
+error.** Hence the `_URC_DRAIN_S` window.
 
-**Q: Which phones are supported?**
-Any rooted Android device. Prefer models with active rooting communities and configurable screen-on behaviour.
+**2. URCs and command responses share one stream**
+`BUSY` / `NO CARRIER` are both result codes *and* possible URCs. Conflating them makes a
+failed call look like "some unrelated notification arrived", and the bridge marches on.
+`_looks_like_urc()` keeps the two apart; result codes must reach the caller.
 
-**Q: How many simultaneous calls?**
-One per phone you connect. Each phone registers as an independent device in the `devices` list.
+**3. pyserial objects are not thread-safe**
+With a two-port module the URC thread reads the same AT port that `_at_cmd` reads.
+Symptom is an intermittent "ATD got no response" that is nearly impossible to reproduce.
+All serial I/O goes through `_serial_lock`.
 
-**Q: Can this be used for spam calling?**
-No. Only dial numbers where you have a legitimate business relationship (order notifications, service follow-ups, etc.).
-Bulk dialling of unsolicited numbers violates telecom regulations; this project neither provides nor supports that use case.
+**4. Do not start the URC thread on single-port modules (SIM800C)**
+The AT port *is* the audio port; adding a third reader just makes things worse. Single-port
+modules have `_at_cmd` extract the URC inline into `_pending_urc`, which
+`_wait_for_connect` re-checks.
+
+**5. `hangup()` must not always report success**
+If `ATH` returns `ERROR` and the bridge still assumes success, the line stays occupied
+and the *next* call fails to connect — a confusing symptom to debug. Now `OK` /
+`NO CARRIER` count as released, anything else is a failure.
+
+**6. μ-law bit width**
+The classic mistake when hand-rolling this: the input is arithmetically shifted right by 2
+into 14 bits, so the segment table is 0x3F…0x1FFF, **not** 0xFF…0x7FFF. Verified by
+37.1 dB round-trip SNR and the 32124 decode full-scale.
 
 ---
 
-## Safety notes
+## Tests
 
-- This project **drives your real phone**: dialing, tapping, starting and stopping apps. **Confirm your device configuration before running.**
-- Calls consume carrier minutes.
-- Use a headset to avoid echo feedback causing the AI to talk to itself.
-- **Never commit real credentials (`app_id` / `access_token` / device serials) to a public repository.**
-
----
-
-## ⭐ Star this project
-
-If this saved you a VoIP account and a pile of configuration, drop a **Star** ⭐ so more people who need it can find it.
-
-<p align="center">
-  <b>Need a full appliance that answers landlines / 400 numbers?</b><br>
-  An all-in-one AI phone receptionist (on-premise · private deployment · works offline)<br>
-  is running in production — call the demo line <b>165-1124-4888</b> to hear the AI answer.
-</p>
+```bash
+python -m pytest tests/ -v
+```
 
 ---
 
 ## License
 
-Source code may be freely read, modified and self-deployed. **Commercial redistribution and resale require authorization.**
-A LICENSE file has not yet been added — do not assume any license terms until one is published.
+MIT — see [LICENSE](LICENSE).
+
+The audio path, Twilio compatibility layer and hardware abstraction are independently
+reusable. Commercial AI capabilities (ASR / LLM / TTS) are **not** part of this repo —
+this project is transport only.

@@ -1,77 +1,48 @@
-# Claw Phone Call
+# AgentCallCenter
 
-**让 AI Agent 用你手边的安卓手机打电话。** 不买VoIP 服务、不申请号码、不接 SIP 中继线—— 一台已 Root 的安卓手机 + 一条 USB 线，就是一部能被 Agent 调用的电话。
+**Twilio 兼容的本地电话网关** — 让 OpenClaw 的 voice-call 插件复用全部 AI 能力（VAD、ASR、Agent、TTS、barge-in），音频走本地硬件，不依赖任何云 telephony 账号。
 
-[![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
-[![OpenClaw](https://img.shields.io/badge/skill-OpenClaw-purple.svg)](SKILL.md)
-[![License](https://img.shields.io/badge/license-source--available-informational.svg)](#license)
+> A Twilio-compatible local telephony bridge. Point your OpenClaw `voice-call` plugin at
+> this bridge instead of Twilio, and the AI voice stack keeps working — over your own
+> hardware, on your own network.
 
-> English version: [README_EN.md](README_EN.md)
-
-> **想直接听效果？拨打 165-1124-4888** —— 真人接听，AI 应答，通话按普通话费计费。
-
----
-
-## 为什么是"手边的手机"
-
-做 AI 电话外呼，市面上的方案无非三类，各自都有让人难受的地方：
-
-| 方案 | 痛点 |
-|------|------|
-| 云端 AI 外呼 SaaS | 号码被标记率高接通率差；通话数据在别人服务器；按分钟持续付费 |
-| SIP 中继 / VoIP 号码 | 要营业执照、要开户；虚拟号容易被判定为营销号；配置复杂 |
-| 买一台语音网关 | 硬件之外还要折腾 SIP 栈与驱动 |
-
-**本项目的路子：直接用你已有的手机。** 手机本身就是一部标准电话，插上 SIM 卡就能打，
-用的是真实手机号、真实 SIM 的通话质量，不需要任何服务商的账户或审批。
-
-配合 OpenClaw 的 Agent 能力，Agent 就可以像调用别的工具一样调用这部手机。
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![License MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 ---
 
-## 核心能力
+## 为什么需要它
 
-| 能力 | 说明 |
-|------|------|
-| 📞 **电话控制** | 拨号、接听、挂断、DTMF 按键、通话状态检测 |
-| 🎙️ **低延迟音频采集** | ALSA + FIFO 管道方案，音频侧延迟约 **50ms** |
-| 🗣️ **实时语音识别** | 火山引擎 SeedASR 流式转写（需自备 app_id / token） |
-| 🔊 **语音合成** | **EdgeTTS**（微软 Edge 引擎，**免费且无需密钥**） |
-| 🔊 **VAD 语音活动检测** | 自动区分说话与静音，支持静音填充话术 |
-| 📱 **多机并发** | 多台手机同时通话，统一编排 |
-| 🛠️ **完整设备控制** | 点击、滑动、Home / 电源键、文本输入、截屏、启停应用 |
+Twilio 的 Media Streams 是目前最省事的实时语音接入方式，但它是**按分钟计费的云服务**——
+把 AI 语音能力接到 PSTN 上，意味着每一通对话都要向境外服务商报数、报文字、报音频。
 
-### 对话链路
+AgentCallCenter 把这一层搬回本地：对外暴露 Twilio 的 REST 契约，内部把音频接到
+你手边的硬件（4G 模块、USB 语音调制解调器、安卓手机）。**上层的 OpenClaw 插件几乎不用改。**
 
 ```
-Agent 下指令 → 拨号 → 等待接听 → 播放开场白
-   ↓
-┌─ 循环 ──────────────────────────────┐
-│ 采集音频 → VAD 判定说话 → ASR 转写  │
-│     → 大模型处理 → TTS 合成 → 播放  │
-└─────────────────────────────────────┘
-   ↓
-命中结束关键词 / 达到轮次上限 → 挂断
+OpenClaw voice-call <--REST/WebSocket--> AgentCallCenter Bridge <--硬件--> 电话线路
+   (VAD/ASR/LLM/TTS)                (Twilio 兼容层)      (SIM7600/USB Modem/Android)
 ```
 
 ---
 
-## 硬件要求
+## 特性
 
-- **已 Root 的安卓手机**（需要 root 才能访问 ALSA 音频设备）
-- USB 数据线 + 开启 USB 调试模式
-- 电脑端 Python 3.9+
-
-推荐机型：小米 / 一加 / realme 等 root 社区活跃的机型。
-
-> **为什么需要 root**：本项目的音频通路走手机本机的 ALSA 设备 + FIFO 管道，
-> 这是能做到 ~50ms 延迟的关键，未 root 的设备无法建立这条通路。
+| | |
+|---|---|
+| **Twilio REST 兼容** | 实现 `POST /2010-04-01/Accounts/{sid}/Calls.json`，解析 TwiML `<Stream>` |
+| **多硬件后端** | SIM7600 4G LTE（推荐）/ SIM800C 2G / USB Voice Modem / Android / Mock |
+| **双向音频** | 8 kHz μ-law ↔ 16-bit PCM，WebSocket 承载，自动重采样 |
+| **barge-in** | 下行 `<clear>` 事件清空播放队列，对话打断不排队 |
+| **双向录音** | 上行 + 下行分别录制，按号码归档为 WAV |
+| **Web 管理后台** | 控制台面板 + 通话记录（搜索 / 播放 / 下载） |
+| **零外部依赖** | μ-law 编解码自带纯 Python 兜底，`audioop` 不可用也能跑 |
 
 ---
 
 ## 快速开始
 
-### 1. 安装依赖
+### 1. 安装
 
 ```bash
 git clone https://github.com/verylowlow/claw-phonecall.git
@@ -79,151 +50,175 @@ cd claw-phonecall
 pip install -r requirements.txt
 ```
 
+> Python 3.13 上 `audioop` 已被标准库移除。本项目内置纯 Python 的 G.711 μ-law
+> 实现作为兜底，所以**即使 `audioop-lts` 装不上也不影响运行**。
+
 ### 2. 配置
 
-编辑 `configs/settings.yaml`：
-
-```yaml
-adb:
-  mode: usb                # usb 或 wifi
-  devices:
-    - id: "phone1"
-      serial: "ABCD123456789"    # adb devices 看到的序列号
-      name: "测试手机1"
-      phone_number: "13511223344"
-
-volcengine:
-  region: cn-beijing
-  asr:
-    app_id: "你的 app_id"
-    access_token: "你的 access_token"
-    resource_id: "volc.seedasr.auc"   # SeedASR 模型 2.0
+```bash
+cp .env.example .env
 ```
 
-> 🔒 **关于凭据**：TTS 走 EdgeTTS，**不需要任何密钥**；只有 ASR 需要火山引擎凭据。
-> 请**不要把真实 token 提交进仓库** —— 示例配置填占位符即可，
-> 你的真实配置建议放在本地未提交的文件中，或通过环境变量注入。
+最少改一行：
 
-### 3. 确认设备已连上
+```env
+BRIDGE_BACKEND=mock      # 先用 mock 跑通链路，再换真实硬件
+```
+
+### 3. 启动
 
 ```bash
-adb devices# 确认手机状态为 device 而非 unauthorized
-python scripts/phone_call.py list
+python -m src.server
 ```
 
-### 4. 使用
+- Twilio REST API：`http://127.0.0.1:8080`
+- Web 管理后台：`http://127.0.0.1:8080`（`/` 控制台，`/records` 通话记录）
 
-**Python 调用**
+### 4. 让 voice-call 指向本 Bridge
 
-```python
-from scripts.phone_call import PhoneCall
-
-phone = PhoneCall("ABCD123456789")
-
-# 一站式：拨号 → 等接听 → 对话 → 挂断
-phone.run_full_call("13800138000", greeting="您好，我是AI助手，请问有什么可以帮您？")
-
-# 或分步控制
-phone.dial("13800138000")
-if phone.wait_for_answer(timeout=30):
-    phone.start_conversation()
-    phone.hangup()
+```json5
+{
+  plugins: {
+    entries: {
+      "voice-call": {
+        enabled: true,
+        config: {
+          provider: "twilio",
+          fromNumber: "+8610000000",
+          twilio: {
+            accountSid: "LOCAL_BRIDGE",
+            authToken: "local_token",
+            apiBaseUrl: "http://127.0.0.1:8080"   // ← 指到本 Bridge
+          },
+          publicUrl: "http://127.0.0.1:8080/voice/webhook",
+          streaming: { enabled: true, streamPath: "/voice/stream" }
+        }
+      }
+    }
+  }
+}
 ```
 
-**命令行**
+上层插件不需要任何改动。
 
-```bash
-python scripts/phone_call.py list    # 列出已连设备
-python scripts/phone_call.py -s ABCD123 info# 查看设备信息
-python scripts/phone_call.py -s ABCD123 dial 13800138000   # 拨打并对话
+---
+
+## 硬件后端
+
+### SIM7600 4G LTE（推荐）
+
+```env
+BRIDGE_BACKEND=sim7600
+SIMCOM_AT_PORT=COM5       # AT 命令口
+SIMCOM_AUDIO_PORT=COM6    # PCM 音频口
+SIMCOM_BAUD_RATE=115200
 ```
 
-**多机并发**
+SIM7600G-H USB Dongle + 4G SIM 卡，插入 PC 的 USB 口即可。
+它会枚举出多个 COM 口，在设备管理器里找 AT 口和 Audio 口。
 
-```python
-from scripts.phone_call import PhoneCallManager
+### SIM800C 2G GSM（仅开发测试）
 
-manager = PhoneCallManager()
-manager.add_device("phone1", "ABCD123456", "13511111111")
-manager.add_device("phone2", "EFGH789012", "13522222222")
-
-# 同时拨号，等待接听
-connected = manager.dial_and_connect([
-    ("phone1", "13800138000"),
-    ("phone2", "13900139000"),
-])
+```env
+BRIDGE_BACKEND=sim800c
+SIMCOM_AT_PORT=COM3
+# SIMCOM_AUDIO_PORT=      # SIM800C 单口复用，留空
 ```
 
-**作为 OpenClaw Skill 使用**
+⚠️ 2G 网络正在退网，只用于开发验证。
 
-仓库内的 [`SKILL.md`](SKILL.md) 是标准的 OpenClaw 技能定义，
-声明了触发条件与允许的工具，可直接被 OpenClaw 加载。
+### USB Voice Modem（固网线路）
+
+```env
+BRIDGE_BACKEND=usb_modem
+MODEM_PORT=COM3
+```
+
+接线：电话线 (RJ11) → USB Voice Modem → PC USB
+
+### Android 手机
+
+```env
+BRIDGE_BACKEND=android
+ANDROID_DEVICE_ID=       # 留空自动检测
+```
+
+接线：Android (USB + ADB) + 外接声卡 + 3.5mm 音频线
 
 ---
 
 ## 项目结构
 
 ```
-claw-phonecall/
-├── SKILL.md                # OpenClaw 技能定义
-├── README.md
-├── requirements.txt
-├── configs/
-│   └── settings.yaml       # 设备与 ASR/TTS 配置
-└── scripts/
-    ├── adb_control.py      # ADB 设备控制（拨号/按键/点击/截屏）
-    ├── audio_capture.py    # ALSA + FIFO 音频采集与播放
-    ├── vad.py              # 语音活动检测 + 静音填充
-    ├── asr_client.py       # 火山引擎 SeedASR 客户端
-    ├── tts_player.py       # EdgeTTS 播放器
-    ├── dialog_manager.py   # 对话状态机与多路编排
-    └── phone_call.py       # 主入口 / CLI
+src/
+├── server.py                # 主入口（FastAPI + lifespan）
+├── config.py                # 环境变量配置
+├── bridge_manager.py        # 通话流程调度 + 媒体桥接循环
+├── twilio_compat/           # Twilio 兼容层
+│   ├── rest_api.py          # POST /Calls.json
+│   ├── twiml_parser.py      # 解析 TwiML <Stream>
+│   └── webhook.py           # 状态回调
+├── media_stream/
+│   ├── ws_client.py         # WebSocket 客户端（含重连）
+│   ├── codec.py             # PCM ↔ μ-law ↔ base64
+│   └── protocol.py          # Media Streams 消息
+├── backends/                # 硬件后端（可插拔）
+│   ├── base.py              # TelephonyBackend 抽象
+│   ├── simcom_base.py       # SIMCom AT 命令 + URC + PCM 线程
+│   ├── sim7600.py / sim800c.py
+│   ├── usb_modem.py / android.py / mock.py
+├── recording/               # 双向录音
+├── db/models.py             # SQLite 持久化
+└── web/                     # Web 管理后台
 ```
 
 ---
 
-## 常见问题
+## 踩过的坑（都已在代码里修好）
 
-**Q：延迟有多少？**
-音频侧约 50ms（ALSA + FIFO）。端到端还取决于 ASR / TTS 的网络往返。
+这个仓库不是一次写完的 demo。下面几条是实际调试中确认并修复的问题，
+如果你也要写自己的 telephony 后端，建议先读一遍：
 
-**Q：必须 root 吗？**
-是。访问 ALSA 音频设备需要 root，这是低延迟方案的前提。
+**1. `ATD` 是异步的，收到 `OK` 不代表接通**
+`ATD<number>;` 立刻回 `OK` 只表示"命令已接受"，真正的接通结果几百毫秒后才以
+URC `VOICE CALL: BEGIN` 上报。如果 AT 命令循环在 `OK` 上break，接通事件永远读不到
+→ **表现为拨不通，且没有任何报错**。代码里为此留了 `_URC_DRAIN_S` 收报窗口。
 
-**Q：支持哪些手机？**
-所有已 root 的安卓机型，建议选 root 社区活跃、屏幕常亮策略可配置的机型。
+**2. URC 和命令回显混在同一个流里**
+`BUSY` / `NO CARRIER` 既是结果码、又可能是 URC。混为一谈会让"呼叫失败"
+被当成"收到一条无关通知"吞掉，桥接层继续往下走。
+`_looks_like_urc()` 把两类行分开，结果码必须回给调用方。
 
-**Q：能同时打几通？**
-取决于你挂了几台手机。每台手机作为一个独立设备注册进 `devices` 列表。
+**3. pyserial 不是线程安全的**
+双口模块会起一个 URC 线程读 AT 口，和 `_at_cmd` 的读操作争抢同一个对象。
+表现为偶发的"ATD 无响应"—— 极难复现。所有串口读写走 `_serial_lock`。
 
-**Q：会不会算骚扰电话？**
-请只拨你有合法业务关系的号码（订单通知、服务回访等）。
-陌生号码批量外呼违反通信法规，本项目不提供也不支持此类用途。
+**4. 单口模块（SIM800C）不要起 URC 线程**
+AT 口和音频口是同一个，起线程只会三方争抢。单口时接通事件改由 `_at_cmd`
+内联摘取，写进 `_pending_urc` 供 `_wait_for_connect` 复查。
+
+**5. `hangup()` 不能无条件返回成功**
+`ATH` 回`ERROR` 时若仍上报成功，桥接层会以为已挂断，实际线路还占着 ——
+表现是"下一通拨不通"。现在按响应区分： `OK` / `NO CARRIER` 算成功，其它算失败。
+
+**6. μ-law 编码的位宽**
+自写实现最容易错的是段边界表：输入先算术右移 2 位压到 14 bit，
+段边界就是 0x3F…0x1FFF 而不是 0xFF…0x7FFF。
+实测往返 SNR 37.1 dB、解码满量程 32124 才算对齐标准。
 
 ---
 
-## 安全提醒
+## 运行测试
 
-- 本项目会**操作你的真实手机**：拨号、点击、启停应用。**运行前请确认设备配置无误。**
-- 通话会产生运营商话费。
-- 建议使用耳机，避免回声被麦克风采集造成 AI 自问自答。
-- **请勿将真实凭据（app_id / access_token / 设备序列号）提交到公开仓库。**
-
----
-
-## ⭐ Star 支持
-
-如果这个项目帮你省下了一套 VoIP 服务和一堆配置，随手点个 **Star** ⭐，让更多需要它的人看到。
-
-<p align="center">
-  <b>需要能接打真实固话 / 400 号码的完整一体机方案？</b><br>
-  AI 电话客服整机（本地部署 · 私有化 · 断网可用）已在生产环境运行，<br>
-  欢迎拨打体验热线 <b>165-1124-4888</b> 直接听 AI 接听效果。
-</p>
+```bash
+python -m pytest tests/ -v
+```
 
 ---
 
 ## License
 
-本项目源码可自由阅读、修改与自部署。**商业分发与二次销售需获得授权。**
-LICENSE 文件待补充，在此之前请勿假设任何授权条款。
+MIT — 见 [LICENSE](LICENSE)。
+
+音频通路、Twilio 兼容层与硬件抽象均可独立复用。
+商业 AI 能力（ASR / LLM / TTS）不在本仓库内，本项目只做**传输层**。

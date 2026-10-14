@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgentCallCenter - 通话记录</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>AgentCallCenter</h1>
+            <nav>
+                <a href="/">控制台</a>
+                <a href="/records" class="active">通话记录</a>
+            </nav>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="filter-bar">
+            <div>
+                <label>电话号码</label>
+                <input type="text" id="f-phone" placeholder="搜索号码...">
+            </div>
+            <div>
+                <label>方向</label>
+                <select id="f-direction">
+                    <option value="">全部</option>
+                    <option value="outbound">呼出</option>
+                    <option value="inbound">呼入</option>
+                </select>
+            </div>
+            <div>
+                <label>开始日期</label>
+                <input type="date" id="f-start">
+            </div>
+            <div>
+                <label>结束日期</label>
+                <input type="date" id="f-end">
+            </div>
+            <div>
+                <label>状态</label>
+                <select id="f-status">
+                    <option value="">全部</option>
+                    <option value="completed">completed</option>
+                    <option value="failed">failed</option>
+                    <option value="in-progress">in-progress</option>
+                </select>
+            </div>
+            <button class="btn btn-primary" onclick="searchCalls(1)">搜索</button>
+        </div>
+
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>号码</th>
+                        <th>方向</th>
+                        <th>开始时间</th>
+                        <th>时长</th>
+                        <th>后端</th>
+                        <th>状态</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="calls-body"></tbody>
+            </table>
+        </div>
+
+        <div class="pagination" id="pagination"></div>
+
+        <div class="detail-panel" id="detail-panel" style="display:none">
+            <h3>通话详情</h3>
+            <div class="detail-grid" id="detail-grid"></div>
+            <div class="audio-player" id="audio-player" style="display:none">
+                <h4 style="margin:16px 0 8px;font-size:14px">录音播放</h4>
+                <audio controls id="audio-el" style="width:100%"></audio>
+                <div style="margin-top:8px">
+                    <a id="download-link" class="btn btn-sm btn-primary" download>下载录音</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+    <script>
+        let currentPage = 1;
+
+        async function searchCalls(page) {
+            currentPage = page || 1;
+            const params = new URLSearchParams();
+            const phone = document.getElementById('f-phone').value.trim();
+            const dir = document.getElementById('f-direction').value;
+            const start = document.getElementById('f-start').value;
+            const end = document.getElementById('f-end').value;
+            const status = document.getElementById('f-status').value;
+
+            if (phone) params.set('phone', phone);
+            if (dir) params.set('direction', dir);
+            if (start) params.set('start_date', start + 'T00:00:00');
+            if (end) params.set('end_date', end + 'T23:59:59');
+            if (status) params.set('status', status);
+            params.set('page', currentPage);
+            params.set('page_size', 20);
+
+            try {
+                const data = await api('/api/calls?' + params.toString());
+                renderTable(data.items);
+                renderPagination(data.page, data.pages);
+            } catch (e) {
+                console.error('Search error:', e);
+            }
+        }
+
+        function renderTable(items) {
+            const body = document.getElementById('calls-body');
+            if (!items || !items.length) {
+                body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">没有找到通话记录</td></tr>';
+                return;
+            }
+            body.innerHTML = items.map(c => `
+                <tr>
+                    <td>${escHtml(c.phone_number)}</td>
+                    <td>${c.direction === 'outbound' ? '呼出' : '呼入'}</td>
+                    <td>${formatTime(c.start_time)}</td>
+                    <td>${formatDuration(c.duration)}</td>
+                    <td>${escHtml(c.backend_type)}</td>
+                    <td><span class="badge ${c.status}">${escHtml(c.status)}</span></td>
+                    <td><button class="btn btn-sm btn-primary" onclick="showDetail('${escHtml(c.call_sid)}')">详情</button></td>
+                </tr>`).join('');
+        }
+
+        function renderPagination(page, pages) {
+            const el = document.getElementById('pagination');
+            if (pages <= 1) { el.innerHTML = ''; return; }
+            let html = '';
+            html += `<button ${page <= 1 ? 'disabled' : ''} onclick="searchCalls(${page-1})">上一页</button>`;
+            for (let i = 1; i <= pages; i++) {
+                if (pages > 7 && Math.abs(i - page) > 2 && i !== 1 && i !== pages) {
+                    if (i === 2 || i === pages - 1) html += '<button disabled>...</button>';
+                    continue;
+                }
+                html += `<button class="${i===page?'active':''}" onclick="searchCalls(${i})">${i}</button>`;
+            }
+            html += `<button ${page >= pages ? 'disabled' : ''} onclick="searchCalls(${page+1})">下一页</button>`;
+            el.innerHTML = html;
+        }
+
+        async function showDetail(callSid) {
+            try {
+                const data = await api('/api/calls/' + callSid);
+                const panel = document.getElementById('detail-panel');
+                panel.style.display = 'block';
+
+                const grid = document.getElementById('detail-grid');
+                grid.innerHTML = `
+                    <div class="label">CallSid</div><div style="font-family:monospace;font-size:13px">${escHtml(data.call_sid)}</div>
+                    <div class="label">电话号码</div><div>${escHtml(data.phone_number)}</div>
+                    <div class="label">方向</div><div>${data.direction === 'outbound' ? '呼出' : '呼入'}</div>
+                    <div class="label">开始时间</div><div>${formatTime(data.start_time)}</div>
+                    <div class="label">结束时间</div><div>${data.end_time ? formatTime(data.end_time) : '--'}</div>
+                    <div class="label">通话时长</div><div>${formatDuration(data.duration)}</div>
+                    <div class="label">后端类型</div><div>${escHtml(data.backend_type)}</div>
+                    <div class="label">状态</div><div><span class="badge ${data.status}">${escHtml(data.status)}</span></div>
+                `;
+
+                const audioPanel = document.getElementById('audio-player');
+                if (data.recording_path) {
+                    const url = '/api/calls/' + callSid + '/recording';
+                    document.getElementById('audio-el').src = url;
+                    document.getElementById('download-link').href = url + '?download=true';
+                    audioPanel.style.display = 'block';
+                } else {
+                    audioPanel.style.display = 'none';
+                }
+
+                panel.scrollIntoView({ behavior: 'smooth' });
+            } catch (e) {
+                console.error('Detail error:', e);
+            }
+        }
+
+        searchCalls(1);
+    </script>
+</body>
+</html>
