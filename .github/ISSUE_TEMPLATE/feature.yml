@@ -1,0 +1,19 @@
+name: 功能建议
+description: 想支持新硬件 / 新能力
+title: "[feature] "
+labels: enhancement
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: 想做什么
+      description: 具体一点，尤其是硬件相关：型号、AT 口与音频口如何区分、音频格式
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: 为什么需要
+      description: 现在是怎么绕过去的？
+    validations:
+      required: true
